@@ -186,6 +186,8 @@ export interface Job {
   skipPlanning?: boolean;
   waitingStartedAt?: string;
   totalPausedMs?: number;
+  planningElapsedMs?: number;
+  developmentElapsedMs?: number;
   gitSnapshots?: GitSnapshot[];
   diffText?: string;
   acceptedAt?: string;

@@ -234,6 +234,7 @@ export function JobDetailPanel() {
             followUps={job.followUps}
             snapshots={job.status === 'completed' ? job.gitSnapshots : undefined}
             onRollback={job.status === 'completed' ? handleRejectJob : undefined}
+            isActive={isActive}
           />
         </div>
       </div>
@@ -606,7 +607,7 @@ function DetailPhaseDurations({ job, now, settings }: { job: Job; now: number; s
     if (end) {
       phases.push({
         label: 'PLN',
-        value: formatDuration(new Date(job.planningStartedAt).getTime(), end, phasePaused),
+        value: formatDuration(new Date(job.planningStartedAt).getTime() - (job.planningElapsedMs || 0), end, phasePaused),
         accentColor: 'border-l-column-planning',
         dotColor: 'bg-column-planning',
         active: isLive,
@@ -621,7 +622,7 @@ function DetailPhaseDurations({ job, now, settings }: { job: Job; now: number; s
     if (end) {
       phases.push({
         label: 'DEV',
-        value: formatDuration(new Date(job.developmentStartedAt).getTime(), end, phasePaused),
+        value: formatDuration(new Date(job.developmentStartedAt).getTime() - (job.developmentElapsedMs || 0), end, phasePaused),
         accentColor: 'border-l-column-development',
         dotColor: 'bg-column-development',
         active: isLive,
@@ -698,75 +699,75 @@ function PromptTimeline({
   followUps,
   snapshots,
   onRollback,
+  isActive,
 }: {
   prompt: string;
   jobTitle?: string;
   followUps?: FollowUp[];
   snapshots?: GitSnapshot[];
   onRollback?: (index: number) => void;
+  isActive?: boolean;
 }) {
   const hasFollowUps = followUps && followUps.length > 0;
   const canRollback = snapshots && snapshots.length > 0 && onRollback;
 
   // Simple case: no follow-ups and no rollback
   if (!hasFollowUps && !canRollback) {
-    return <div className="text-sm font-medium truncate">{jobTitle || prompt}</div>;
+    return (
+      <div className="mt-1">
+        <div className="text-sm font-semibold text-content-primary leading-snug">{jobTitle || prompt}</div>
+        {jobTitle && (
+          <div className="text-xs text-content-tertiary mt-0.5 truncate">{prompt}</div>
+        )}
+      </div>
+    );
   }
 
-  const steps = [
-    { label: prompt, title: jobTitle, isOriginal: true },
-    ...(followUps || []).map((f) => ({ label: f.prompt, title: f.title, isOriginal: false })),
-  ];
-
   return (
-    <div className="mt-1 space-y-0">
-      {steps.map((step, i) => {
-        const isLast = i === steps.length - 1;
-        // Snapshot at this index means we can roll back to before this step
-        const snapshot = canRollback && snapshots[i] ? snapshots[i] : null;
+    <div className="mt-1">
+      {/* Original title — prominent */}
+      <div className="text-sm font-semibold text-content-primary leading-snug">{jobTitle || prompt}</div>
+      {jobTitle && (
+        <div className="text-xs text-content-tertiary mt-0.5 truncate">{prompt}</div>
+      )}
 
-        return (
-          <div key={i} className="flex items-start gap-2 relative group/step">
-            {/* Dot + connector */}
-            <div className="flex flex-col items-center shrink-0 w-4">
-              <div className={`w-[5px] h-[5px] rounded-full mt-[7px] shrink-0 bg-column-done`} />
-              {!isLast && (
-                <div className="w-px flex-1 min-h-[8px] bg-chrome-subtle/70" />
-              )}
-            </div>
+      {/* Follow-ups */}
+      {hasFollowUps && (
+        <div className="mt-1.5 pt-1.5 border-t border-chrome-subtle/30 space-y-1">
+          {followUps!.map((f, i) => {
+            const isLast = i === followUps!.length - 1;
+            const isCurrent = isLast && isActive;
+            // Snapshot index is i+1 because index 0 is the original task
+            const snapshot = canRollback && snapshots[i + 1] ? snapshots[i + 1] : null;
 
-            {/* Step content */}
-            <div className="pb-1.5 min-w-0 flex-1">
-              <span className={`text-[10px] uppercase tracking-wider font-semibold mr-1.5 ${
-                step.isOriginal ? 'text-content-tertiary' : 'text-column-development'
-              }`}>
-                {step.isOriginal ? 'Task' : `Follow-up #${i}`}
-              </span>
-              <span className={`text-sm leading-snug ${
-                isLast ? 'font-medium text-content-primary' : 'text-content-secondary'
-              }`}>
-                {step.title || step.label}
-              </span>
-              {step.title && (
-                <div className="text-content-tertiary text-xs mt-0.5 truncate">{step.label}</div>
-              )}
-            </div>
-
-            {/* Rollback icon */}
-            {snapshot && onRollback && (
-              <button
-                onClick={() => onRollback(i)}
-                className="shrink-0 mt-1 p-1 rounded text-content-tertiary/40 hover:text-semantic-error hover:bg-semantic-error-bg/10 opacity-0 group-hover/step:opacity-100 transition-all"
-                title={`Roll back to "${snapshot.label}"`}
-              >
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                  <path d="M2 6h5M4.5 3.5L2 6l2.5 2.5M10 3v6" />
-                </svg>
-              </button>
-            )}
-          </div>
-        );
-      })}
+            return (
+              <div key={i} className="flex items-center gap-1.5 group/step">
+                {isCurrent ? (
+                  <svg width="12" height="12" viewBox="0 0 16 16" className="shrink-0 animate-spin text-content-tertiary">
+                    <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="28 10" strokeLinecap="round" />
+                  </svg>
+                ) : (
+                  <span className="text-content-tertiary/60 shrink-0 text-xs w-[12px] text-center">+</span>
+                )}
+                <span className={`text-xs leading-snug truncate min-w-0 flex-1 ${isCurrent ? 'font-medium text-content-primary' : 'text-content-secondary'}`}>
+                  {f.title || f.prompt}
+                </span>
+                {snapshot && onRollback && (
+                  <button
+                    onClick={() => onRollback(i + 1)}
+                    className="shrink-0 p-1 rounded text-content-tertiary/40 hover:text-semantic-error hover:bg-semantic-error-bg/10 opacity-0 group-hover/step:opacity-100 transition-all"
+                    title={`Roll back to "${snapshot.label}"`}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                      <path d="M2 6h5M4.5 3.5L2 6l2.5 2.5M10 3v6" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

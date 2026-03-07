@@ -690,11 +690,28 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
       content: `--- Retrying (${phase} phase) ---`,
     });
 
+    // Accumulate previous phase elapsed time before resetting
+    const nowMs = new Date(now).getTime();
+    let elapsedUpdate: Partial<Job> = {};
+    if (phase === 'plan' && job.planningStartedAt) {
+      const prev = job.planningElapsedMs || 0;
+      const elapsed = nowMs - new Date(job.planningStartedAt).getTime() - (job.totalPausedMs || 0);
+      elapsedUpdate = { planningElapsedMs: prev + elapsed, planningStartedAt: now };
+    } else if (phase === 'dev' && job.developmentStartedAt) {
+      const prev = job.developmentElapsedMs || 0;
+      const elapsed = nowMs - new Date(job.developmentStartedAt).getTime() - (job.totalPausedMs || 0);
+      elapsedUpdate = { developmentElapsedMs: prev + elapsed, developmentStartedAt: now };
+    } else {
+      elapsedUpdate = phase === 'plan' ? { planningStartedAt: now } : { developmentStartedAt: now };
+    }
+
     const updated = updateJob(jobId, {
       status: 'running',
       error: undefined,
       pendingQuestion: undefined,
-      ...(phase === 'plan' ? { planningStartedAt: now } : { developmentStartedAt: now }),
+      totalPausedMs: 0,
+      waitingStartedAt: undefined,
+      ...elapsedUpdate,
       outputLog,
     });
 
@@ -786,12 +803,19 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
       content: `--- Follow-up #${followUps.length}: ${prompt} ---`,
     });
 
+    // Accumulate previous dev elapsed time before resetting
+    let devElapsed = job.developmentElapsedMs || 0;
+    if (job.developmentStartedAt && job.completedAt) {
+      devElapsed += new Date(job.completedAt).getTime() - new Date(job.developmentStartedAt).getTime() - (job.totalPausedMs || 0);
+    }
+
     const updated = updateJob(jobId, {
       column: 'development',
       status: 'running',
       completedAt: undefined,
       summaryText: undefined,
       developmentStartedAt: now,
+      developmentElapsedMs: devElapsed,
       totalPausedMs: 0,
       waitingStartedAt: undefined,
       pendingQuestion: undefined,

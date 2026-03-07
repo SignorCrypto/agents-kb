@@ -120,7 +120,7 @@ export const JobCard = memo(function JobCard({ job }: JobCardProps) {
 
         {/* Prompt timeline */}
         {job.followUps && job.followUps.length > 0 ? (
-          <CardTimeline prompt={job.prompt} jobTitle={job.title} followUps={job.followUps} expanded={expanded} promptRef={promptRef} />
+          <CardTimeline prompt={job.prompt} jobTitle={job.title} followUps={job.followUps} expanded={expanded} promptRef={promptRef} isActive={isActive} />
         ) : (
           <div ref={promptRef}>
             {job.title ? (
@@ -183,7 +183,7 @@ function PhaseDurations({ job, now }: { job: Job; now: number }) {
     if (end) {
       phases.push({
         label: 'PLN',
-        value: formatDuration(new Date(job.planningStartedAt).getTime(), end, phasePaused),
+        value: formatDuration(new Date(job.planningStartedAt).getTime() - (job.planningElapsedMs || 0), end, phasePaused),
         dotColor: 'bg-column-planning',
         active: isLive,
       });
@@ -197,7 +197,7 @@ function PhaseDurations({ job, now }: { job: Job; now: number }) {
     if (end) {
       phases.push({
         label: 'DEV',
-        value: formatDuration(new Date(job.developmentStartedAt).getTime(), end, phasePaused),
+        value: formatDuration(new Date(job.developmentStartedAt).getTime() - (job.developmentElapsedMs || 0), end, phasePaused),
         dotColor: 'bg-column-development',
         active: isLive,
       });
@@ -258,87 +258,52 @@ function CardTimeline({
   followUps,
   expanded,
   promptRef,
+  isActive,
 }: {
   prompt: string;
   jobTitle?: string;
   followUps: FollowUp[];
   expanded: boolean;
   promptRef: React.RefObject<HTMLDivElement | null>;
+  isActive: boolean;
 }) {
-  const totalSteps = 1 + followUps.length;
-  const activeStep = totalSteps; // latest follow-up is the current step
-
   return (
-    <div ref={promptRef} className={expanded ? '' : ''}>
-      {/* Step indicators row */}
-      <div className="flex items-center gap-0.5 mb-1.5">
-        {Array.from({ length: totalSteps }, (_, i) => {
-          const stepNum = i + 1;
-          const isCurrent = stepNum === activeStep;
+    <div ref={promptRef}>
+      {/* Original title — styled identically to non-followup cards */}
+      {jobTitle ? (
+        <div className={`text-[13px] leading-snug font-semibold text-content-primary ${expanded ? '' : 'line-clamp-2'}`}>
+          {jobTitle}
+        </div>
+      ) : (
+        <div className={`text-[13px] leading-snug font-medium text-content-primary whitespace-pre-wrap break-words ${expanded ? '' : 'line-clamp-2'}`}>
+          {prompt}
+        </div>
+      )}
+      {expanded && jobTitle && (
+        <div className="text-[12px] leading-snug text-content-tertiary mt-0.5 whitespace-pre-wrap break-words">
+          {prompt}
+        </div>
+      )}
+
+      {/* Follow-ups */}
+      <div className="mt-1.5 pt-1.5 border-t border-chrome-subtle/30 space-y-0.5">
+        {followUps.map((f, i) => {
+          const isLast = i === followUps.length - 1;
+          const isCurrent = isLast && isActive;
           return (
-            <div key={i} className="flex items-center gap-0.5">
-              <div
-                className={`w-[14px] h-[14px] rounded-full flex items-center justify-center text-[8px] font-bold leading-none ${
-                  isCurrent
-                    ? 'bg-column-development text-content-inverted'
-                    : 'bg-column-done/20 text-column-done'
-                }`}
-              >
-                {isCurrent ? stepNum : (
-                  <svg width="7" height="7" viewBox="0 0 7 7" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M1.5 3.5l1.5 1.5 3-3" />
-                  </svg>
-                )}
-              </div>
-              {i < totalSteps - 1 && (
-                <div className="w-2 h-px bg-chrome-subtle/70" />
+            <div key={i} className={`flex items-center gap-1.5 text-[11px] leading-snug ${isCurrent ? 'text-content-primary' : 'text-content-secondary'}`}>
+              {isCurrent ? (
+                <svg width="10" height="10" viewBox="0 0 16 16" className="shrink-0 animate-spin text-content-tertiary">
+                  <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="28 10" strokeLinecap="round" />
+                </svg>
+              ) : (
+                <span className="text-content-tertiary/60 shrink-0 text-[10px] w-[10px] text-center">+</span>
               )}
+              <span className={`truncate ${isCurrent ? 'font-medium' : ''}`}>{f.title || f.prompt}</span>
             </div>
           );
         })}
-        <span className="text-[9px] text-content-tertiary ml-1">
-          Step {activeStep}/{totalSteps}
-        </span>
       </div>
-
-      {/* Show all steps when expanded, only current when collapsed */}
-      {expanded ? (
-        <div className="space-y-1">
-          <div className="flex items-start gap-1.5">
-            <span className="text-[9px] font-bold text-content-tertiary uppercase shrink-0 mt-[2px] w-6">1.</span>
-            <div className="min-w-0">
-              <span className="text-[12px] leading-snug text-content-secondary line-clamp-1">{jobTitle || prompt}</span>
-              {jobTitle && (
-                <div className="text-[11px] leading-snug text-content-tertiary line-clamp-1">{prompt}</div>
-              )}
-            </div>
-          </div>
-          {followUps.map((f, i) => {
-            const isCurrent = i === followUps.length - 1;
-            return (
-              <div key={i} className="flex items-start gap-1.5">
-                <span className={`text-[9px] font-bold uppercase shrink-0 mt-[2px] w-6 ${
-                  isCurrent ? 'text-column-development' : 'text-content-tertiary'
-                }`}>{i + 2}.</span>
-                <div className="min-w-0">
-                  <span className={`text-[12px] leading-snug ${
-                    isCurrent
-                      ? 'font-medium text-content-primary'
-                      : 'text-content-secondary line-clamp-1'
-                  }`}>{f.title || f.prompt}</span>
-                  {f.title && (
-                    <div className="text-[11px] leading-snug text-content-tertiary line-clamp-1">{f.prompt}</div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="text-[13px] leading-snug font-medium text-content-primary whitespace-pre-wrap break-words line-clamp-2">
-          {followUps[followUps.length - 1].title || followUps[followUps.length - 1].prompt}
-        </div>
-      )}
     </div>
   );
 }
