@@ -10,6 +10,8 @@ import { AcceptJobDialog } from './AcceptJobDialog';
 import { formatDuration, useNow } from '../utils/duration';
 import type { Job, FollowUp, GitSnapshot, AppSettings, OutputEntry } from '../types/index';
 import { MODEL_CATALOG, EFFORT_CATALOG } from '../types/index';
+import { BrainIcon, BranchIcon } from './Icons';
+import { PlanMarkdown } from './PlanMarkdown';
 
 export function JobDetailPanel() {
   const selectedJobId = useKanbanStore((s) => s.selectedJobId);
@@ -132,16 +134,10 @@ export function JobDetailPanel() {
             <span>{project?.name || 'Unknown'}</span>
             {job.branch && (
               <span className="flex items-center gap-1 normal-case tracking-normal text-[11px] font-medium text-content-secondary bg-surface-tertiary/60 rounded px-1.5 py-0.5 max-w-[180px]">
-                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
-                  <line x1="6" y1="3" x2="6" y2="13" />
-                  <circle cx="6" cy="3" r="2" />
-                  <circle cx="12" cy="5" r="2" />
-                  <path d="M12 7c0 3-2 4-6 6" />
-                </svg>
+                <BranchIcon size={12} className="shrink-0" />
                 <span className="truncate">{job.branch}</span>
               </span>
             )}
-            <ModelEffortBadges job={job} settings={settings} />
           </div>
           <div className="flex items-center gap-0.5 shrink-0">
           {/* Accept — for completed jobs on git repos */}
@@ -233,6 +229,7 @@ export function JobDetailPanel() {
         <div className="px-4 pb-2.5">
           <PromptTimeline
             prompt={job.prompt}
+            jobTitle={job.title}
             followUps={job.followUps}
             snapshots={job.status === 'completed' ? job.gitSnapshots : undefined}
             onRollback={job.status === 'completed' ? handleRejectJob : undefined}
@@ -342,7 +339,7 @@ export function JobDetailPanel() {
       />
 
       {/* Phase durations — bottom footer */}
-      <DetailPhaseDurations job={job} now={now} />
+      <DetailPhaseDurations job={job} now={now} settings={settings} />
 
       {/* Accept dialog */}
       {showAcceptDialog && (
@@ -593,7 +590,7 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
 
 /* ─── Phase Durations ─── */
 
-function DetailPhaseDurations({ job, now }: { job: Job; now: number }) {
+function DetailPhaseDurations({ job, now, settings }: { job: Job; now: number; settings: AppSettings }) {
   let pausedMs = job.totalPausedMs || 0;
   if (job.status === 'waiting-input' && job.waitingStartedAt) {
     pausedMs += now - new Date(job.waitingStartedAt).getTime();
@@ -631,7 +628,22 @@ function DetailPhaseDurations({ job, now }: { job: Job; now: number }) {
     }
   }
 
-  if (phases.length === 0) return null;
+  // Model/effort badges
+  const effectiveModel = job.model || settings.defaultModel;
+  const effectiveEffort = job.effort || settings.defaultEffort;
+  const showBadges = settings.alwaysShowModelEffort
+    || effectiveModel !== settings.defaultModel
+    || effectiveEffort !== settings.defaultEffort;
+  const modelEntry = MODEL_CATALOG.find((o) => o.value === effectiveModel);
+  const effortEntry = EFFORT_CATALOG.find((o) => o.value === effectiveEffort);
+  const modelLabel = modelEntry?.label && effectiveModel !== 'default'
+    ? modelEntry.label
+    : (settings.alwaysShowModelEffort ? 'Default' : '');
+  const effortLabel = effortEntry?.label && effectiveEffort !== settings.defaultEffort
+    ? effortEntry.label
+    : (settings.alwaysShowModelEffort ? 'Default' : '');
+
+  if (phases.length === 0 && !showBadges) return null;
 
   return (
     <div className="shrink-0 flex items-center gap-3 px-4 py-1.5 border-t border-chrome-subtle/40 bg-surface-secondary">
@@ -652,67 +664,42 @@ function DetailPhaseDurations({ job, now }: { job: Job; now: number }) {
           )}
         </div>
       ))}
+      {showBadges && (modelLabel || effortLabel) && (
+        <div className="flex items-center gap-2.5 ml-auto">
+          {modelLabel && (
+            <span className="text-[10px] font-medium text-content-tertiary uppercase tracking-wider" title={`Model: ${modelLabel}`}>
+              {modelLabel}
+            </span>
+          )}
+          {effortLabel && (
+            <span className="flex items-center gap-1 text-content-tertiary" title={`Effort: ${effortLabel}`}>
+              <BrainIcon size={11} className="shrink-0 opacity-60" />
+              <span className="text-[10px] font-medium uppercase tracking-wider">{effortLabel}</span>
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
-/* ─── Plan View (markdown-lite renderer) ─── */
+/* ─── Plan View ─── */
 
 function PlanView({ content }: { content: string }) {
-  const lines = content.split('\n');
-
-  return (
-    <div className="text-xs leading-relaxed font-mono">
-      {lines.map((line, i) => {
-        if (line.startsWith('### ')) {
-          return <div key={i} className="text-sm font-semibold text-neutral-200 mt-3 mb-1">{line.slice(4)}</div>;
-        }
-        if (line.startsWith('## ')) {
-          return <div key={i} className="text-sm font-bold text-neutral-100 mt-4 mb-1">{line.slice(3)}</div>;
-        }
-        if (line.startsWith('# ')) {
-          return <div key={i} className="text-base font-bold text-white mt-4 mb-2">{line.slice(2)}</div>;
-        }
-        if (line.match(/^\s*[-*]\s/)) {
-          const indent = line.match(/^(\s*)/)?.[1].length || 0;
-          return (
-            <div key={i} className="text-neutral-300" style={{ paddingLeft: `${indent * 4 + 8}px` }}>
-              <span className="text-semantic-success mr-1">•</span>
-              {line.replace(/^\s*[-*]\s/, '')}
-            </div>
-          );
-        }
-        if (line.match(/^\s*\d+\.\s/)) {
-          const indent = line.match(/^(\s*)/)?.[1].length || 0;
-          const num = line.match(/(\d+)\./)?.[1];
-          return (
-            <div key={i} className="text-neutral-300" style={{ paddingLeft: `${indent * 4 + 8}px` }}>
-              <span className="text-semantic-success mr-1">{num}.</span>
-              {line.replace(/^\s*\d+\.\s/, '')}
-            </div>
-          );
-        }
-        if (line.startsWith('```')) {
-          return <div key={i} className="text-neutral-500 text-[10px]">{line}</div>;
-        }
-        if (!line.trim()) {
-          return <div key={i} className="h-2" />;
-        }
-        return <div key={i} className="text-neutral-300">{line}</div>;
-      })}
-    </div>
-  );
+  return <PlanMarkdown content={content} />;
 }
 
 /* ─── Prompt Timeline ─── */
 
 function PromptTimeline({
   prompt,
+  jobTitle,
   followUps,
   snapshots,
   onRollback,
 }: {
   prompt: string;
+  jobTitle?: string;
   followUps?: FollowUp[];
   snapshots?: GitSnapshot[];
   onRollback?: (index: number) => void;
@@ -722,12 +709,12 @@ function PromptTimeline({
 
   // Simple case: no follow-ups and no rollback
   if (!hasFollowUps && !canRollback) {
-    return <div className="text-sm font-medium truncate">{prompt}</div>;
+    return <div className="text-sm font-medium truncate">{jobTitle || prompt}</div>;
   }
 
   const steps = [
-    { label: prompt, isOriginal: true },
-    ...(followUps || []).map((f) => ({ label: f.prompt, isOriginal: false })),
+    { label: prompt, title: jobTitle, isOriginal: true },
+    ...(followUps || []).map((f) => ({ label: f.prompt, title: f.title, isOriginal: false })),
   ];
 
   return (
@@ -757,8 +744,11 @@ function PromptTimeline({
               <span className={`text-sm leading-snug ${
                 isLast ? 'font-medium text-content-primary' : 'text-content-secondary'
               }`}>
-                {step.label}
+                {step.title || step.label}
               </span>
+              {step.title && (
+                <div className="text-content-tertiary text-xs mt-0.5 truncate">{step.label}</div>
+              )}
             </div>
 
             {/* Rollback icon */}
@@ -875,35 +865,5 @@ function EditedFilesList({ files }: { files: EditedFile[] }) {
         })}
       </div>
     </div>
-  );
-}
-
-/* ─── Model/Effort Badges ─── */
-
-function ModelEffortBadges({ job, settings }: { job: Job; settings: AppSettings }) {
-  const effectiveModel = job.model || settings.defaultModel;
-  const effectiveEffort = job.effort || settings.defaultEffort;
-  const isNonDefault = effectiveModel !== settings.defaultModel || effectiveEffort !== settings.defaultEffort;
-  if (!isNonDefault) return null;
-
-  const modelEntry = MODEL_CATALOG.find((o) => o.value === effectiveModel);
-  const effortEntry = EFFORT_CATALOG.find((o) => o.value === effectiveEffort);
-  const modelLabel = modelEntry?.label && effectiveModel !== 'default' ? modelEntry.label : '';
-  const effortLabel = effortEntry?.label && effectiveEffort !== settings.defaultEffort ? `${effortEntry.label} effort` : '';
-  if (!modelLabel && !effortLabel) return null;
-
-  return (
-    <>
-      {modelLabel && (
-        <span className="text-[10px] font-medium text-content-tertiary bg-surface-tertiary/60 rounded px-1.5 py-0.5">
-          {modelLabel}
-        </span>
-      )}
-      {effortLabel && (
-        <span className="text-[10px] font-medium text-content-tertiary bg-surface-tertiary/60 rounded px-1.5 py-0.5">
-          {effortLabel}
-        </span>
-      )}
-    </>
   );
 }

@@ -25,8 +25,8 @@ import {
 import { sessionManager } from './session-manager';
 import { notifyInputNeeded, notifyPlanReady, notifyJobComplete, notifyJobError } from './notifications';
 import { isGitRepoRoot, captureSnapshot, restoreSnapshot, cleanupSnapshot, cleanupAllSnapshots, getDiff, listBranches, checkoutBranch, gitStageAll, gitCommit, getBranchesStatus, gitPush } from './git-snapshot';
-import type { Job, OutputEntry, RawMessage, PendingQuestion, AppSettings, Project, ModelChoice, EffortLevel } from '../shared/types';
-import { COMMIT_PROMPT_SUFFIX } from '../shared/types';
+import type { Job, OutputEntry, RawMessage, PendingQuestion, AppSettings, Project, ModelChoice, EffortLevel, PromptConfig } from '../shared/types';
+import { DEFAULT_PROMPT_CONFIGS } from '../shared/types';
 
 type WindowGetter = () => BrowserWindow | null;
 
@@ -148,9 +148,9 @@ async function generateAndCacheBranchCommitMessage(projectId: string, branch: st
   const project = getProjects().find(p => p.id === projectId);
   if (!project) return;
   try {
-    const settings = getSettings();
-    const prompt = (settings.commitPrompt || 'Generate a concise conventional commit message for the current uncommitted changes.') + COMMIT_PROMPT_SUFFIX;
-    const message = await runClaudePrint(project.path, prompt);
+    const config = getPromptConfig('commit');
+    const prompt = buildPromptText(config);
+    const message = await runClaudePrint(project.path, prompt, { model: config.model, effort: config.effort });
     if (message) {
       commitMessageCache.set(`${projectId}:${branch}`, message);
     }
@@ -349,10 +349,25 @@ async function startClaudeSession(job: Job, getWindow: WindowGetter, batchedSend
   return session;
 }
 
-function runClaudePrint(projectPath: string, prompt: string): Promise<string> {
+function getPromptConfig(promptId: string): PromptConfig {
+  const settings = getSettings();
+  return settings.promptConfigs[promptId] ?? DEFAULT_PROMPT_CONFIGS[promptId as keyof typeof DEFAULT_PROMPT_CONFIGS];
+}
+
+function buildPromptText(config: PromptConfig, extra?: string): string {
+  return config.prompt + (config.suffix || '') + (extra || '');
+}
+
+function runClaudePrint(projectPath: string, prompt: string, options?: { model?: string; effort?: string }): Promise<string> {
   return new Promise((resolve, reject) => {
     const { spawn } = require('child_process') as typeof import('child_process');
-    const child = spawn('claude', ['-p', '--model', 'haiku'], {
+    const args = ['-p'];
+    const model = options?.model && options.model !== 'default' ? options.model : 'haiku';
+    args.push('--model', model);
+    if (options?.effort && options.effort !== 'default') {
+      args.push('--effort', options.effort);
+    }
+    const child = spawn('claude', args, {
       cwd: projectPath,
       env: { ...process.env, FORCE_COLOR: '0' },
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -377,6 +392,43 @@ function runClaudePrint(projectPath: string, prompt: string): Promise<string> {
   });
 }
 
+async function generateTitleInBackground(
+  jobId: string,
+  prompt: string,
+  projectPath: string,
+  getWindow: WindowGetter,
+  followUpIndex?: number,
+  context?: string
+) {
+  try {
+    const config = getPromptConfig('title');
+    let titlePrompt = `${config.prompt}\n\n`;
+    if (context) {
+      titlePrompt += `Context: ${context}\n\n`;
+    }
+    titlePrompt += `Task: ${prompt}`;
+    const title = await runClaudePrint(projectPath, titlePrompt, { model: config.model, effort: config.effort });
+    if (!title?.trim()) return;
+
+    const current = getJob(jobId);
+    if (!current) return;
+
+    if (followUpIndex !== undefined) {
+      const followUps = [...(current.followUps || [])];
+      if (followUps[followUpIndex]) {
+        followUps[followUpIndex] = { ...followUps[followUpIndex], title: title.trim() };
+        const updated = updateJob(jobId, { followUps });
+        if (updated) sendToRenderer(getWindow, 'job:status-changed', updated);
+      }
+    } else {
+      const updated = updateJob(jobId, { title: title.trim() });
+      if (updated) sendToRenderer(getWindow, 'job:status-changed', updated);
+    }
+  } catch {
+    // Best-effort
+  }
+}
+
 async function generateCommitMessageInBackground(jobId: string, getWindow: WindowGetter) {
   try {
     const job = getJob(jobId);
@@ -384,9 +436,9 @@ async function generateCommitMessageInBackground(jobId: string, getWindow: Windo
     const project = getProjects().find(p => p.id === job.projectId);
     if (!project) return;
 
-    const settings = getSettings();
-    const prompt = (settings.commitPrompt || 'Generate a concise conventional commit message for the current uncommitted changes.') + COMMIT_PROMPT_SUFFIX;
-    const message = await runClaudePrint(project.path, prompt);
+    const config = getPromptConfig('commit');
+    const prompt = buildPromptText(config);
+    const message = await runClaudePrint(project.path, prompt, { model: config.model, effort: config.effort });
     if (!message) return;
 
     // Only store if job is still completed (not accepted/rejected in the meantime)
@@ -500,9 +552,9 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     }
     const project = getProjects().find(p => p.id === projectId);
     if (!project) throw new Error('Project not found');
-    const settings = getSettings();
-    const prompt = (settings.commitPrompt || 'Generate a concise conventional commit message for the current uncommitted changes.') + COMMIT_PROMPT_SUFFIX;
-    return runClaudePrint(project.path, prompt);
+    const config = getPromptConfig('commit');
+    const prompt = buildPromptText(config);
+    return runClaudePrint(project.path, prompt, { model: config.model, effort: config.effort });
   });
 
   // === Jobs ===
@@ -540,6 +592,12 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     }
 
     saveJob(job);
+
+    // Generate title in background (non-blocking)
+    const titleProject = getProjects().find(p => p.id === projectId);
+    if (titleProject) {
+      generateTitleInBackground(job.id, prompt, titleProject.path, getWindow);
+    }
 
     await startClaudeSession(job, getWindow, batchedSender, skipPlanning ? 'dev' : 'plan');
 
@@ -727,6 +785,13 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
 
     if (updated) {
       sendToRenderer(getWindow, 'job:status-changed', updated);
+
+      // Generate title for the follow-up in background, with job context
+      if (project) {
+        const prevContext = (job.title || job.prompt) + (job.summaryText ? `\n\nPrevious result: ${job.summaryText.slice(0, 300)}` : '');
+        generateTitleInBackground(jobId, prompt, project.path, getWindow, followUps.length - 1, prevContext);
+      }
+
       await startClaudeSession(updated, getWindow, batchedSender, 'dev', job.sessionId);
     }
 
@@ -876,9 +941,9 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     const project = getProjects().find(p => p.id === job.projectId);
     if (!project) throw new Error('Project not found');
 
-    const settings = getSettings();
-    const prompt = (settings.commitPrompt || 'Generate a concise conventional commit message for the current uncommitted changes.') + COMMIT_PROMPT_SUFFIX;
-    return runClaudePrint(project.path, prompt);
+    const config = getPromptConfig('commit');
+    const prompt = buildPromptText(config);
+    return runClaudePrint(project.path, prompt, { model: config.model, effort: config.effort });
   });
 
   // === Settings ===

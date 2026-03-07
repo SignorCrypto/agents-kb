@@ -233,9 +233,7 @@ export class ClaudeSession extends EventEmitter {
           this.sessionId = msg.session_id as string;
           this.emit('session-id', this.sessionId);
         }
-        const content = (msg.message as string)
-          || (msg.subtype === 'init' ? `Session started (${msg.session_id})` : '')
-          || JSON.stringify(msg);
+        const content = this.formatSystemMessage(msg);
         if (content) {
           this.emit('output', {
             timestamp: new Date().toISOString(),
@@ -419,6 +417,37 @@ export class ClaudeSession extends EventEmitter {
       default:
         break;
     }
+  }
+
+  private formatSystemMessage(msg: Record<string, unknown>): string {
+    // Explicit message field
+    if (msg.message && typeof msg.message === 'string') {
+      return msg.message;
+    }
+
+    const subtype = msg.subtype as string | undefined;
+
+    if (subtype === 'init') {
+      return `Session started (${msg.session_id})`;
+    }
+
+    if (subtype === 'task_notification') {
+      const status = msg.status as string || 'unknown';
+      const summary = msg.summary as string || '';
+      const usage = msg.usage as { total_tokens?: number; tool_uses?: number; duration_ms?: number } | undefined;
+      const parts = [summary ? `Task ${status}: ${summary}` : `Task ${status}`];
+      if (usage) {
+        const details: string[] = [];
+        if (usage.tool_uses != null) details.push(`${usage.tool_uses} tool uses`);
+        if (usage.duration_ms != null) details.push(`${(usage.duration_ms / 1000).toFixed(1)}s`);
+        if (usage.total_tokens != null) details.push(`${usage.total_tokens.toLocaleString()} tokens`);
+        if (details.length > 0) parts.push(`(${details.join(', ')})`);
+      }
+      return parts.join(' ');
+    }
+
+    // Fallback: stringify, but skip if it would be empty/trivial
+    return JSON.stringify(msg);
   }
 
   private emitQuestion(input: Record<string, unknown>): void {

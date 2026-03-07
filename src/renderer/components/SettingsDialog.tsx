@@ -4,8 +4,8 @@ import { useKanbanStore } from '../hooks/useKanbanStore';
 import { useElectronAPI } from '../hooks/useElectronAPI';
 import { KbdRaw } from './Kbd';
 import { SegmentedPicker } from './SegmentedPicker';
-import type { AppSettings, ShortcutBinding, ThemeMode } from '../types/index';
-import { DEFAULT_SETTINGS, MODEL_CATALOG, EFFORT_CATALOG } from '../types/index';
+import type { AppSettings, ShortcutBinding, ThemeMode, PromptConfig } from '../types/index';
+import { DEFAULT_SETTINGS, MODEL_CATALOG, EFFORT_CATALOG, DEFAULT_PROMPT_CONFIGS } from '../types/index';
 
 const isMac =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
@@ -256,29 +256,25 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 
           <div className="border-t border-chrome-subtle/40" />
 
-          {/* Git section */}
+          {/* Prompts section */}
           <div>
             <span className="text-[10px] font-semibold uppercase tracking-wider text-content-tertiary">
-              Git
+              Prompts
             </span>
           </div>
 
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <div>
-                <div className="text-[13px] text-content-primary">Commit prompt template</div>
-                <div className="text-[10px] text-content-tertiary mt-0.5">
-                  Prompt sent to Claude CLI to generate the commit message
-                </div>
-              </div>
-            </div>
-            <textarea
-              value={local.commitPrompt}
-              onChange={(e) => save({ ...local, commitPrompt: e.target.value })}
-              rows={4}
-              className="w-full px-3 py-2 text-xs rounded-lg border border-chrome bg-surface-elevated focus:outline-none focus:ring-2 focus:ring-focus-ring/40 resize-none font-mono"
+          {Object.values(local.promptConfigs).map((config) => (
+            <PromptConfigEditor
+              key={config.id}
+              config={config}
+              onChange={(updated) => {
+                save({
+                  ...local,
+                  promptConfigs: { ...local.promptConfigs, [updated.id]: updated },
+                });
+              }}
             />
-          </div>
+          ))}
 
           <div className="border-t border-chrome-subtle/40" />
 
@@ -316,6 +312,53 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: () => void 
         }`}
       />
     </button>
+  );
+}
+
+/* ─── Prompt Config Editor ─── */
+
+function PromptConfigEditor({
+  config,
+  onChange,
+}: {
+  config: PromptConfig;
+  onChange: (updated: PromptConfig) => void;
+}) {
+  return (
+    <div className="space-y-2.5">
+      <div>
+        <div className="text-[13px] text-content-primary">{config.label}</div>
+      </div>
+      <textarea
+        value={config.prompt}
+        onChange={(e) => onChange({ ...config, prompt: e.target.value })}
+        rows={3}
+        className="w-full px-3 py-2 text-xs rounded-lg border border-chrome bg-surface-elevated focus:outline-none focus:ring-2 focus:ring-focus-ring/40 resize-none font-mono"
+      />
+      {config.suffix && (
+        <div className="text-[10px] text-content-tertiary -mt-1">
+          Appended automatically: <span className="italic">{config.suffix.trim()}</span>
+        </div>
+      )}
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-content-secondary">Model</span>
+          <SegmentedPicker
+            options={MODEL_CATALOG}
+            value={config.model}
+            onChange={(model) => onChange({ ...config, model })}
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-content-secondary">Effort</span>
+          <SegmentedPicker
+            options={EFFORT_CATALOG}
+            value={config.effort}
+            onChange={(effort) => onChange({ ...config, effort })}
+          />
+        </div>
+      </div>
+    </div>
   );
 }
 

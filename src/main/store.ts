@@ -1,6 +1,6 @@
 import Store from 'electron-store';
-import type { Project, Job, OutputEntry, RawMessage, AppSettings } from '../shared/types';
-import { DEFAULT_SETTINGS, DEFAULT_SHORTCUTS } from '../shared/types';
+import type { Project, Job, OutputEntry, RawMessage, AppSettings, PromptConfig } from '../shared/types';
+import { DEFAULT_SETTINGS, DEFAULT_SHORTCUTS, DEFAULT_PROMPT_CONFIGS, DEFAULT_COMMIT_PROMPT } from '../shared/types';
 
 interface StoreSchema {
   projects: Project[];
@@ -240,6 +240,25 @@ export function getSettings(): AppSettings {
     const missing = DEFAULT_SHORTCUTS.filter((s) => !existingIds.has(s.id));
     merged.shortcuts = [...(stored.shortcuts as typeof DEFAULT_SHORTCUTS), ...missing];
   }
+
+  // Migrate legacy commitPrompt -> promptConfigs
+  if (!stored.promptConfigs) {
+    merged.promptConfigs = { ...DEFAULT_PROMPT_CONFIGS };
+    if (stored.commitPrompt && stored.commitPrompt !== DEFAULT_COMMIT_PROMPT) {
+      merged.promptConfigs.commit = {
+        ...DEFAULT_PROMPT_CONFIGS.commit,
+        prompt: stored.commitPrompt as string,
+      };
+    }
+  } else {
+    // Ensure any new default prompts are present for existing users
+    for (const [id, config] of Object.entries(DEFAULT_PROMPT_CONFIGS)) {
+      if (!(merged.promptConfigs as Record<string, PromptConfig>)[id]) {
+        (merged.promptConfigs as Record<string, PromptConfig>)[id] = config;
+      }
+    }
+  }
+
   return merged;
 }
 

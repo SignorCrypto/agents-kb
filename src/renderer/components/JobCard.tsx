@@ -4,6 +4,7 @@ import { NotificationBadge } from './NotificationBadge';
 import { formatDuration, useNow } from '../utils/duration';
 import type { Job, KanbanColumn, JobStatus, FollowUp } from '../types/index';
 import { MODEL_CATALOG, EFFORT_CATALOG } from '../types/index';
+import { BrainIcon } from './Icons';
 
 interface JobCardProps {
   job: Job;
@@ -56,7 +57,7 @@ export const JobCard = memo(function JobCard({ job }: JobCardProps) {
     const ro = new ResizeObserver(check);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [job.prompt, expanded]);
+  }, [job.prompt, job.title, expanded]);
 
   const isSelected = selectedJobId === job.id;
   const needsAttention = job.status === 'waiting-input' || job.status === 'plan-ready';
@@ -119,15 +120,25 @@ export const JobCard = memo(function JobCard({ job }: JobCardProps) {
 
         {/* Prompt timeline */}
         {job.followUps && job.followUps.length > 0 ? (
-          <CardTimeline prompt={job.prompt} followUps={job.followUps} expanded={expanded} promptRef={promptRef} />
+          <CardTimeline prompt={job.prompt} jobTitle={job.title} followUps={job.followUps} expanded={expanded} promptRef={promptRef} />
         ) : (
-          <div
-            ref={promptRef}
-            className={`text-[13px] leading-snug font-medium text-content-primary whitespace-pre-wrap break-words ${
-              expanded ? '' : 'line-clamp-2'
-            }`}
-          >
-            {job.prompt}
+          <div ref={promptRef}>
+            {job.title ? (
+              <>
+                <div className={`text-[13px] leading-snug font-semibold text-content-primary ${expanded ? '' : 'line-clamp-2'}`}>
+                  {job.title}
+                </div>
+                {expanded && (
+                  <div className="text-[12px] leading-snug text-content-tertiary mt-1 whitespace-pre-wrap break-words">
+                    {job.prompt}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className={`text-[13px] leading-snug font-medium text-content-primary whitespace-pre-wrap break-words ${expanded ? '' : 'line-clamp-2'}`}>
+                {job.prompt}
+              </div>
+            )}
           </div>
         )}
 
@@ -199,8 +210,8 @@ function PhaseDurations({ job, now }: { job: Job; now: number }) {
   const showBadges = settings.alwaysShowModelEffort
     || effectiveModel !== settings.defaultModel
     || effectiveEffort !== settings.defaultEffort;
-  const modelLabel = getBadge(MODEL_CATALOG, effectiveModel);
-  const effortLabel = getBadge(EFFORT_CATALOG, effectiveEffort);
+  const modelLabel = getBadge(MODEL_CATALOG, effectiveModel) || (settings.alwaysShowModelEffort ? 'DEFAULT' : '');
+  const effortLabel = getBadge(EFFORT_CATALOG, effectiveEffort) || (settings.alwaysShowModelEffort ? 'DEFAULT' : '');
 
   if (phases.length === 0 && !showBadges) return null;
 
@@ -223,15 +234,16 @@ function PhaseDurations({ job, now }: { job: Job; now: number }) {
         </div>
       ))}
       {showBadges && (modelLabel || effortLabel) && (
-        <div className="flex items-center gap-1.5 ml-auto">
+        <div className="flex items-center gap-2 ml-auto">
           {modelLabel && (
-            <span className="text-[9px] font-bold tracking-[0.1em] text-content-tertiary uppercase bg-surface-tertiary/60 rounded px-1 py-px">
+            <span className="text-[9px] font-bold tracking-[0.08em] text-content-tertiary uppercase" title={`Model: ${modelLabel}`}>
               {modelLabel}
             </span>
           )}
           {effortLabel && (
-            <span className="text-[9px] font-bold tracking-[0.1em] text-content-tertiary uppercase bg-surface-tertiary/60 rounded px-1 py-px">
-              {effortLabel}
+            <span className="flex items-center gap-1 text-content-tertiary" title={`Effort: ${effortLabel}`}>
+              <BrainIcon size={10} className="shrink-0 opacity-60" />
+              <span className="text-[9px] font-bold tracking-[0.08em] uppercase">{effortLabel}</span>
             </span>
           )}
         </div>
@@ -242,11 +254,13 @@ function PhaseDurations({ job, now }: { job: Job; now: number }) {
 
 function CardTimeline({
   prompt,
+  jobTitle,
   followUps,
   expanded,
   promptRef,
 }: {
   prompt: string;
+  jobTitle?: string;
   followUps: FollowUp[];
   expanded: boolean;
   promptRef: React.RefObject<HTMLDivElement | null>;
@@ -292,7 +306,12 @@ function CardTimeline({
         <div className="space-y-1">
           <div className="flex items-start gap-1.5">
             <span className="text-[9px] font-bold text-content-tertiary uppercase shrink-0 mt-[2px] w-6">1.</span>
-            <span className="text-[12px] leading-snug text-content-secondary line-clamp-1">{prompt}</span>
+            <div className="min-w-0">
+              <span className="text-[12px] leading-snug text-content-secondary line-clamp-1">{jobTitle || prompt}</span>
+              {jobTitle && (
+                <div className="text-[11px] leading-snug text-content-tertiary line-clamp-1">{prompt}</div>
+              )}
+            </div>
           </div>
           {followUps.map((f, i) => {
             const isCurrent = i === followUps.length - 1;
@@ -301,18 +320,23 @@ function CardTimeline({
                 <span className={`text-[9px] font-bold uppercase shrink-0 mt-[2px] w-6 ${
                   isCurrent ? 'text-column-development' : 'text-content-tertiary'
                 }`}>{i + 2}.</span>
-                <span className={`text-[12px] leading-snug ${
-                  isCurrent
-                    ? 'font-medium text-content-primary'
-                    : 'text-content-secondary line-clamp-1'
-                }`}>{f.prompt}</span>
+                <div className="min-w-0">
+                  <span className={`text-[12px] leading-snug ${
+                    isCurrent
+                      ? 'font-medium text-content-primary'
+                      : 'text-content-secondary line-clamp-1'
+                  }`}>{f.title || f.prompt}</span>
+                  {f.title && (
+                    <div className="text-[11px] leading-snug text-content-tertiary line-clamp-1">{f.prompt}</div>
+                  )}
+                </div>
               </div>
             );
           })}
         </div>
       ) : (
         <div className="text-[13px] leading-snug font-medium text-content-primary whitespace-pre-wrap break-words line-clamp-2">
-          {followUps[followUps.length - 1].prompt}
+          {followUps[followUps.length - 1].title || followUps[followUps.length - 1].prompt}
         </div>
       )}
     </div>

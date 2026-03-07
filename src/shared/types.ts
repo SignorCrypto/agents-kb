@@ -42,6 +42,20 @@ export const EFFORT_CATALOG: EffortOption[] = [
 export type ModelChoice = (typeof MODEL_CATALOG)[number]["value"];
 export type EffortLevel = (typeof EFFORT_CATALOG)[number]["value"];
 
+/* ─── Prompt Configs ─── */
+
+export interface PromptConfig {
+  id: string;
+  label: string;
+  prompt: string;
+  suffix?: string;
+  model: ModelChoice;
+  effort: EffortLevel;
+}
+
+export const PROMPT_IDS = { COMMIT: 'commit', TITLE: 'title' } as const;
+export type PromptId = (typeof PROMPT_IDS)[keyof typeof PROMPT_IDS];
+
 export interface ShortcutBinding {
   id: string;
   label: string;
@@ -53,7 +67,9 @@ export interface AppSettings {
   theme: ThemeMode;
   showShortcutHints: boolean;
   shortcuts: ShortcutBinding[];
-  commitPrompt: string;
+  /** @deprecated Use promptConfigs.commit instead */
+  commitPrompt?: string;
+  promptConfigs: Record<string, PromptConfig>;
   defaultModel: ModelChoice;
   defaultEffort: EffortLevel;
   alwaysShowModelEffort: boolean;
@@ -72,11 +88,19 @@ export const DEFAULT_COMMIT_PROMPT =
   "Generate a concise conventional commit message for the current uncommitted changes.";
 export const COMMIT_PROMPT_SUFFIX = " Output ONLY the commit message, nothing else.";
 
+export const DEFAULT_TITLE_PROMPT =
+  'Generate a very short task title (3-8 words) for this task. Output ONLY the title, no quotes, no formatting, no punctuation at the end.';
+
+export const DEFAULT_PROMPT_CONFIGS: Record<PromptId, PromptConfig> = {
+  commit: { id: 'commit', label: 'Commit Message', prompt: DEFAULT_COMMIT_PROMPT, suffix: COMMIT_PROMPT_SUFFIX, model: 'haiku', effort: 'low' },
+  title:  { id: 'title',  label: 'Job Title',      prompt: DEFAULT_TITLE_PROMPT,  model: 'haiku', effort: 'low' },
+};
+
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: "system",
   showShortcutHints: false,
   shortcuts: [...DEFAULT_SHORTCUTS],
-  commitPrompt: DEFAULT_COMMIT_PROMPT,
+  promptConfigs: { ...DEFAULT_PROMPT_CONFIGS },
   defaultModel: "default",
   defaultEffort: "default",
   alwaysShowModelEffort: false,
@@ -134,12 +158,14 @@ export interface RawMessage {
 export interface FollowUp {
   prompt: string;
   timestamp: string;
+  title?: string;
 }
 
 export interface Job {
   id: string;
   projectId: string;
   prompt: string;
+  title?: string;
   followUps?: FollowUp[];
   column: KanbanColumn;
   status: JobStatus;

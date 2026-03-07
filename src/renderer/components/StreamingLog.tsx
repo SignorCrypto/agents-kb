@@ -1,5 +1,6 @@
 import { useEffect, useRef, useMemo, useState } from 'react';
 import type { OutputEntry } from '../types/index';
+import { PlanMarkdown } from './PlanMarkdown';
 
 interface StreamingLogProps {
   entries: OutputEntry[];
@@ -77,12 +78,8 @@ function buildSections(entries: OutputEntry[]): Section[] {
     } else if (entry.type === 'error') {
       sections.push({ kind: 'error', content: entry.content, timestamp: entry.timestamp });
     } else {
-      // system
-      if (last?.kind === 'system') {
-        last.content += entry.content;
-      } else {
-        sections.push({ kind: 'system', content: entry.content, timestamp: entry.timestamp });
-      }
+      // system — each entry gets its own section (don't concatenate)
+      sections.push({ kind: 'system', content: entry.content, timestamp: entry.timestamp });
     }
   }
 
@@ -179,48 +176,10 @@ function ThinkingSection({ content }: { content: string }) {
 }
 
 function PlanSection({ content }: { content: string }) {
-  const rendered = content.split('\n').map((line, i) => {
-    if (line.startsWith('### ')) {
-      return <div key={i} className="text-sm font-semibold text-neutral-200 mt-3 mb-1">{line.slice(4)}</div>;
-    }
-    if (line.startsWith('## ')) {
-      return <div key={i} className="text-sm font-bold text-neutral-100 mt-4 mb-1">{line.slice(3)}</div>;
-    }
-    if (line.startsWith('# ')) {
-      return <div key={i} className="text-base font-bold text-white mt-4 mb-2">{line.slice(2)}</div>;
-    }
-    if (line.match(/^\s*[-*]\s/)) {
-      const indent = line.match(/^(\s*)/)?.[1].length || 0;
-      return (
-        <div key={i} className="text-neutral-300" style={{ paddingLeft: `${indent * 4 + 8}px` }}>
-          <span className="text-semantic-success mr-1">•</span>
-          {line.replace(/^\s*[-*]\s/, '')}
-        </div>
-      );
-    }
-    if (line.match(/^\s*\d+\.\s/)) {
-      const indent = line.match(/^(\s*)/)?.[1].length || 0;
-      const num = line.match(/(\d+)\./)?.[1];
-      return (
-        <div key={i} className="text-neutral-300" style={{ paddingLeft: `${indent * 4 + 8}px` }}>
-          <span className="text-semantic-success mr-1">{num}.</span>
-          {line.replace(/^\s*\d+\.\s/, '')}
-        </div>
-      );
-    }
-    if (line.startsWith('```')) {
-      return <div key={i} className="text-neutral-500 text-[10px]">{line}</div>;
-    }
-    if (!line.trim()) {
-      return <div key={i} className="h-2" />;
-    }
-    return <div key={i} className="text-neutral-300">{line}</div>;
-  });
-
   return (
     <div className="my-2 rounded-lg border border-semantic-success-border/30 bg-semantic-success-bg/10 p-3 text-xs leading-relaxed">
       <div className="text-semantic-success text-[10px] font-semibold uppercase tracking-wider mb-2">Plan</div>
-      {rendered}
+      <PlanMarkdown content={content} />
     </div>
   );
 }
