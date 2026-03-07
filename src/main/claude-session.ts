@@ -446,6 +446,16 @@ export class ClaudeSession extends EventEmitter {
       return parts.join(' ');
     }
 
+    if (subtype === 'task_progress') {
+      const description = msg.description as string | undefined;
+      const toolName = msg.last_tool_name as string | undefined;
+      if (description) {
+        return toolName ? `[${toolName}] ${description}` : description;
+      }
+      // No description — suppress this message
+      return '';
+    }
+
     // Fallback: stringify, but skip if it would be empty/trivial
     return JSON.stringify(msg);
   }
