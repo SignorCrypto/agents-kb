@@ -4,6 +4,7 @@ import { useElectronAPI } from '../hooks/useElectronAPI';
 import { useShortcut } from '../hooks/useShortcut';
 import { Kbd } from './Kbd';
 import { SegmentedPicker } from './SegmentedPicker';
+import { MentionTextarea } from './MentionInput';
 import { MODEL_CATALOG, EFFORT_CATALOG } from '../types/index';
 import type { ModelChoice, EffortLevel } from '../types/index';
 
@@ -254,13 +255,14 @@ export function NewJobDialog() {
           <label className="block text-xs font-medium text-content-secondary uppercase tracking-wider mb-1.5">
             Prompt
           </label>
-          <textarea
+          <MentionTextarea
             value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
+            onChange={setPrompt}
             onPaste={handlePaste}
             onDrop={handleDrop}
             onDragOver={(e) => e.preventDefault()}
-            placeholder="Describe what you want Claude to do... (paste images with Cmd+V)"
+            projectId={selectedProjectId}
+            placeholder="Describe what you want Claude to do... Use @ to reference files"
             rows={6}
             className="w-full px-3 py-2 text-sm rounded-lg border border-chrome bg-surface-elevated focus:outline-none focus:ring-2 focus:ring-focus-ring/40 resize-none"
             autoFocus
@@ -282,9 +284,9 @@ export function NewJobDialog() {
                 />
                 <button
                   onClick={() => removeImage(i)}
-                  className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+                  className="absolute inset-0 bg-surface-overlay/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-content-inverted"
                 >
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                     <path d="M4 4l8 8M12 4l-8 8" />
                   </svg>
                 </button>

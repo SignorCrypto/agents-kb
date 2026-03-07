@@ -33,6 +33,9 @@ const api: ElectronAPI = {
   jobsRejectJob: (jobId, snapshotIndex) => ipcRenderer.invoke('jobs:reject-job', jobId, snapshotIndex),
   jobsFollowUp: (jobId, prompt) => ipcRenderer.invoke('jobs:follow-up', jobId, prompt),
 
+  // Files
+  filesList: (projectId) => ipcRenderer.invoke('files:list', projectId),
+
   // Settings
   settingsGet: () => ipcRenderer.invoke('settings:get'),
   settingsUpdate: (partial) => ipcRenderer.invoke('settings:update', partial),

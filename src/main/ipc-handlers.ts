@@ -25,6 +25,7 @@ import {
 import { sessionManager } from './session-manager';
 import { notifyInputNeeded, notifyPlanReady, notifyJobComplete, notifyJobError } from './notifications';
 import { isGitRepoRoot, captureSnapshot, restoreSnapshot, cleanupSnapshot, cleanupAllSnapshots, getDiff, listBranches, checkoutBranch, gitStageAll, gitCommit, getBranchesStatus, gitPush } from './git-snapshot';
+import { listProjectFiles } from './file-list';
 import type { Job, OutputEntry, RawMessage, PendingQuestion, AppSettings, Project, ModelChoice, EffortLevel, PromptConfig } from '../shared/types';
 import { DEFAULT_PROMPT_CONFIGS } from '../shared/types';
 
@@ -555,6 +556,24 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     const config = getPromptConfig('commit');
     const prompt = buildPromptText(config);
     return runClaudePrint(project.path, prompt, { model: config.model, effort: config.effort });
+  });
+
+  // === Files ===
+  const fileCache = new Map<string, { files: string[]; timestamp: number }>();
+  const FILE_CACHE_TTL = 30_000;
+
+  ipcMain.handle('files:list', async (_event, projectId: string) => {
+    const project = getProjects().find(p => p.id === projectId);
+    if (!project) return [];
+
+    const cached = fileCache.get(projectId);
+    if (cached && Date.now() - cached.timestamp < FILE_CACHE_TTL) {
+      return cached.files;
+    }
+
+    const files = await listProjectFiles(project.path, project.isGitRepo !== false);
+    fileCache.set(projectId, { files, timestamp: Date.now() });
+    return files;
   });
 
   // === Jobs ===

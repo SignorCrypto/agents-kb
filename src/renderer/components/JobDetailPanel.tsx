@@ -6,6 +6,7 @@ import { useShortcut } from '../hooks/useShortcut';
 import { Kbd } from './Kbd';
 import { StreamingLog } from './StreamingLog';
 import { DiffViewer } from './DiffViewer';
+import { MentionInput } from './MentionInput';
 import { AcceptJobDialog } from './AcceptJobDialog';
 import { formatDuration, useNow } from '../utils/duration';
 import type { Job, FollowUp, GitSnapshot, AppSettings, OutputEntry } from '../types/index';
@@ -278,8 +279,8 @@ export function JobDetailPanel() {
           {/* Tab content */}
           {doneTab === 'summary' && hasSummary && (
             <div className="flex-1 min-h-0 overflow-y-auto p-3">
-              <EditedFilesList files={editedFiles} />
               <PlanView content={job.summaryText!} />
+              <EditedFilesList files={editedFiles} />
             </div>
           )}
           {doneTab === 'diff' && hasDiff && (
@@ -298,8 +299,8 @@ export function JobDetailPanel() {
       {/* Done state without summary or diff — show edited files + log */}
       {isDone && !hasSummary && !hasDiff && (
         <div className="flex-1 min-h-0 p-3 flex flex-col">
-          <EditedFilesList files={editedFiles} />
           <StreamingLog entries={outputLog} />
+          <EditedFilesList files={editedFiles} />
         </div>
       )}
 
@@ -475,20 +476,20 @@ function ActionArea({
             </div>
           )}
           <div className="flex gap-2">
-            <input
-              type="text"
+            <MentionInput
               value={job.pendingQuestion?.multiSelect && selectedOptions.size > 0
                 ? Array.from(selectedOptions).join(', ')
                 : responseText}
-              onChange={(e) => {
+              onChange={(v) => {
                 if (!job.pendingQuestion?.multiSelect) {
-                  setResponseText(e.target.value);
+                  setResponseText(v);
                 }
               }}
               onKeyDown={(e) => e.key === 'Enter' && onRespond()}
+              projectId={job.projectId}
               placeholder={job.pendingQuestion?.multiSelect ? 'Select options above...' : 'Type your response...'}
               readOnly={!!job.pendingQuestion?.multiSelect && selectedOptions.size > 0}
-              className="flex-1 px-3 py-1.5 text-sm rounded-lg border border-chrome bg-surface-elevated focus:outline-none focus:ring-2 focus:ring-focus-ring/40"
+              className="w-full px-3 py-1.5 text-sm rounded-lg border border-chrome bg-surface-elevated focus:outline-none focus:ring-2 focus:ring-focus-ring/40"
             />
             <button
               onClick={onRespond}
@@ -507,13 +508,13 @@ function ActionArea({
       {job.status === 'plan-ready' && (
         <div className="space-y-2">
           <div className="flex gap-2">
-            <input
-              type="text"
+            <MentionInput
               value={editText}
-              onChange={(e) => setEditText(e.target.value)}
+              onChange={setEditText}
               onKeyDown={(e) => e.key === 'Enter' && onEditPlan()}
+              projectId={job.projectId}
               placeholder="Edit plan: e.g. 'also add tests'..."
-              className="flex-1 px-3 py-1.5 text-sm rounded-lg border border-chrome bg-surface-elevated focus:outline-none focus:ring-2 focus:ring-focus-ring/40"
+              className="w-full px-3 py-1.5 text-sm rounded-lg border border-chrome bg-surface-elevated focus:outline-none focus:ring-2 focus:ring-focus-ring/40"
             />
             <button
               onClick={onEditPlan}
@@ -535,13 +536,13 @@ function ActionArea({
       {/* Completed — follow-up input */}
       {job.status === 'completed' && (
         <div ref={followUpRef} className="flex gap-2">
-          <input
-            type="text"
+          <MentionInput
             value={followUpText}
-            onChange={(e) => setFollowUpText(e.target.value)}
+            onChange={setFollowUpText}
             onKeyDown={(e) => e.key === 'Enter' && onFollowUp()}
+            projectId={job.projectId}
             placeholder="Follow up: e.g. 'also add tests'..."
-            className="flex-1 px-3 py-1.5 text-sm rounded-lg border border-chrome bg-surface-elevated focus:outline-none focus:ring-2 focus:ring-focus-ring/40"
+            className="w-full px-3 py-1.5 text-sm rounded-lg border border-chrome bg-surface-elevated focus:outline-none focus:ring-2 focus:ring-focus-ring/40"
           />
           <button
             onClick={onFollowUp}
@@ -827,7 +828,7 @@ function EditedFilesList({ files }: { files: EditedFile[] }) {
   if (files.length === 0) return null;
 
   return (
-    <div className="mb-3">
+    <div className="mt-3">
       <div className="text-[10px] font-semibold text-content-tertiary uppercase tracking-wider mb-1.5">
         {files.length} file{files.length !== 1 ? 's' : ''} touched
       </div>

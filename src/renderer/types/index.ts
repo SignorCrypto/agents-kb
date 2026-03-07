@@ -35,6 +35,9 @@ export interface ElectronAPI {
   jobsRejectJob: (jobId: string, snapshotIndex?: number) => Promise<void>;
   jobsFollowUp: (jobId: string, prompt: string) => Promise<Job>;
 
+  // Files
+  filesList: (projectId: string) => Promise<string[]>;
+
   // Settings
   settingsGet: () => Promise<AppSettings>;
   settingsUpdate: (partial: Partial<AppSettings>) => Promise<AppSettings>;

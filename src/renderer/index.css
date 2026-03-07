@@ -73,6 +73,15 @@
     /* Tool section icons */
     --color-tool-icon: 120 113 108;
     --color-tool-label: 168 162 158;
+
+    /* Terminal (always dark, constant across themes) */
+    --color-terminal-text: 229 229 229;
+    --color-terminal-text-secondary: 163 163 163;
+    --color-terminal-text-muted: 115 115 115;
+    --color-terminal-text-faint: 82 82 82;
+    --color-terminal-border: 38 38 38;
+    --color-terminal-hover: 38 38 38;
+    --color-terminal-surface: 23 23 23;
   }
 
   .dark {
@@ -145,6 +154,15 @@
       /* Tool section icons */
       --color-tool-icon: 168 162 158;
       --color-tool-label: 120 113 108;
+
+      /* Terminal (always dark, constant across themes) */
+      --color-terminal-text: 229 229 229;
+      --color-terminal-text-secondary: 163 163 163;
+      --color-terminal-text-muted: 115 115 115;
+      --color-terminal-text-faint: 82 82 82;
+      --color-terminal-border: 38 38 38;
+      --color-terminal-hover: 38 38 38;
+      --color-terminal-surface: 23 23 23;
   }
 
   * {

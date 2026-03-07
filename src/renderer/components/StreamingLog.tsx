@@ -10,16 +10,15 @@ interface Section {
   kind: 'text' | 'thinking' | 'tool' | 'system' | 'error' | 'plan';
   content: string;
   toolName?: string;
+  toolResult?: string;
   timestamp: string;
 }
 
 function tryParseToolJson(content: string): Record<string, unknown> | null {
   const trimmed = content.trim();
-  // Try parsing directly
   try {
     return JSON.parse(trimmed);
   } catch { /* continue */ }
-  // Try finding JSON start (old PTY output may have prefix text)
   const jsonStart = trimmed.indexOf('{');
   if (jsonStart > 0) {
     try {
@@ -57,9 +56,9 @@ function buildSections(entries: OutputEntry[]): Section[] {
         sections.push({ kind: 'tool', content: entry.content, timestamp: entry.timestamp });
       }
     } else if (entry.type === 'tool-result') {
-      // Append result to last tool section if exists
+      // Append result to last tool section as separate field
       if (last?.kind === 'tool') {
-        last.content += '\n--- result ---\n' + entry.content;
+        last.toolResult = (last.toolResult ? last.toolResult + '\n' : '') + entry.content;
       } else {
         sections.push({ kind: 'system', content: entry.content, timestamp: entry.timestamp });
       }
@@ -83,7 +82,7 @@ function buildSections(entries: OutputEntry[]): Section[] {
     }
   }
 
-  // Post-process: extract plans and suppress ExitPlanMode (retroactive for old logs)
+  // Post-process: extract plans, suppress noise, filter empty
   const processed = sections.map((s) => {
     // Detect Write tool writing to .claude/plans/ — extract content as plan
     if (s.kind === 'tool' && s.toolName === 'Write' && s.content) {
@@ -104,52 +103,140 @@ function buildSections(entries: OutputEntry[]): Section[] {
     if (s.kind === 'plan' && s.content.trim().startsWith('{')) {
       return null;
     }
+    // Filter empty tool sections (no input, no result, no name of value)
+    if (s.kind === 'tool' && !s.content.trim() && !s.toolResult?.trim()) {
+      return null;
+    }
     return s;
   }).filter((s): s is Section => s !== null);
 
   return processed;
 }
 
-function ToolSection({ section }: { section: Section }) {
-  const [expanded, setExpanded] = useState(false);
+/** Try to parse tool input JSON and extract a readable summary + formatted params */
+function parseToolInput(content: string): {
+  parsed: Record<string, unknown> | null;
+  summary: string;
+} {
+  const trimmed = content.trim();
+  if (!trimmed) return { parsed: null, summary: '' };
 
-  // Try to extract a short summary from the JSON content
-  let summary = '';
-  const content = section.content.trim();
-  if (content) {
-    try {
-      const parsed = JSON.parse(content);
-      // Common tool patterns
-      if (parsed.command) summary = parsed.command;
-      else if (parsed.file_path) summary = parsed.file_path;
-      else if (parsed.pattern) summary = parsed.pattern;
-      else if (parsed.query) summary = parsed.query;
-      else if (parsed.path) summary = parsed.path;
-      else if (parsed.url) summary = parsed.url;
-      else if (parsed.prompt) summary = parsed.prompt.slice(0, 80);
-    } catch {
-      // Not complete JSON yet, show first line
-      summary = content.split('\n')[0].slice(0, 80);
-    }
+  const parsed = tryParseToolJson(trimmed);
+  if (!parsed) {
+    // Not valid JSON — show first meaningful line
+    return { parsed: null, summary: trimmed.split('\n')[0].slice(0, 100) };
   }
 
+  // Extract a short summary from common tool patterns
+  let summary = '';
+  if (parsed.command) summary = String(parsed.command);
+  else if (parsed.file_path) summary = String(parsed.file_path);
+  else if (parsed.pattern) summary = String(parsed.pattern);
+  else if (parsed.query) summary = String(parsed.query).slice(0, 100);
+  else if (parsed.path) summary = String(parsed.path);
+  else if (parsed.url) summary = String(parsed.url);
+  else if (parsed.prompt) summary = String(parsed.prompt).slice(0, 100);
+  else if (parsed.regex) summary = String(parsed.regex);
+  else if (parsed.old_string) summary = 'edit';
+  else if (parsed.content && parsed.file_path) summary = String(parsed.file_path);
+
+  return { parsed, summary };
+}
+
+/** Format parsed JSON as readable key-value lines for tool input display */
+function formatToolParams(parsed: Record<string, unknown>): { key: string; value: string; long: boolean }[] {
+  const params: { key: string; value: string; long: boolean }[] = [];
+  for (const [key, value] of Object.entries(parsed)) {
+    if (value === undefined || value === null || value === '') continue;
+    const strValue = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+    const isLong = strValue.length > 120 || strValue.includes('\n');
+    params.push({ key, value: strValue, long: isLong });
+  }
+  return params;
+}
+
+/** Shorten a file path for display */
+function shortenPath(p: string): string {
+  const parts = p.split('/');
+  if (parts.length <= 4) return p;
+  return '.../' + parts.slice(-3).join('/');
+}
+
+function ToolSection({ section }: { section: Section }) {
+  const [expanded, setExpanded] = useState(false);
+  const [resultExpanded, setResultExpanded] = useState(false);
+
+  const { parsed, summary } = useMemo(() => parseToolInput(section.content), [section.content]);
+  const params = useMemo(() => parsed ? formatToolParams(parsed) : null, [parsed]);
+  const hasResult = !!section.toolResult?.trim();
+  const resultPreview = useMemo(() => {
+    if (!hasResult) return '';
+    const r = section.toolResult!.trim();
+    // Truncate long results for preview
+    const firstLine = r.split('\n')[0];
+    return firstLine.length > 100 ? firstLine.slice(0, 100) + '...' : firstLine;
+  }, [section.toolResult, hasResult]);
+
+  const displaySummary = summary ? shortenPath(summary) : '';
+
   return (
-    <div className="my-1 rounded border border-neutral-800 overflow-hidden">
+    <div className="my-1 rounded border border-terminal-border overflow-hidden">
+      {/* Tool header */}
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-2 px-2 py-1.5 text-left hover:bg-neutral-800/50 transition-colors"
+        className="w-full flex items-center gap-2 px-2 py-1.5 text-left hover:bg-terminal-hover/50 transition-colors"
       >
         <span className="text-tool-icon text-[10px] shrink-0">{expanded ? '▼' : '▶'}</span>
         <span className="text-tool-label font-semibold text-[11px] shrink-0">
           {section.toolName || 'Tool'}
         </span>
-        {summary && (
-          <span className="text-neutral-500 text-[10px] truncate">{summary}</span>
+        {displaySummary && (
+          <span className="text-terminal-text-muted text-[10px] truncate font-mono">{displaySummary}</span>
         )}
       </button>
-      {expanded && content && (
-        <div className="px-3 py-2 text-neutral-400 text-[11px] whitespace-pre-wrap break-words border-t border-neutral-800 bg-neutral-900/50 max-h-80 overflow-y-auto">
-          {content}
+
+      {/* Expanded tool input */}
+      {expanded && (
+        <div className="border-t border-terminal-border bg-terminal-surface/50">
+          {params && params.length > 0 ? (
+            <div className="px-3 py-2 space-y-1">
+              {params.map(({ key, value, long }) => (
+                <div key={key} className={long ? '' : 'flex items-baseline gap-2'}>
+                  <span className="text-tool-label text-[10px] font-medium shrink-0">{key}:</span>
+                  <span className={`text-terminal-text-secondary text-[11px] font-mono ${
+                    long ? 'block mt-0.5 whitespace-pre-wrap break-words max-h-60 overflow-y-auto pl-2 border-l border-terminal-border/50' : 'truncate'
+                  }`}>
+                    {value}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : section.content.trim() ? (
+            <div className="px-3 py-2 text-terminal-text-secondary text-[11px] whitespace-pre-wrap break-words max-h-60 overflow-y-auto font-mono">
+              {section.content.trim()}
+            </div>
+          ) : null}
+        </div>
+      )}
+
+      {/* Tool result */}
+      {hasResult && (
+        <div className="border-t border-terminal-border/60">
+          <button
+            onClick={() => setResultExpanded(!resultExpanded)}
+            className="w-full flex items-center gap-2 px-2 py-1 text-left hover:bg-terminal-hover/30 transition-colors"
+          >
+            <span className="text-terminal-text-muted text-[10px] shrink-0">{resultExpanded ? '▼' : '▶'}</span>
+            <span className="text-terminal-text-muted text-[10px] font-medium shrink-0">result</span>
+            {!resultExpanded && resultPreview && (
+              <span className="text-terminal-text-muted/60 text-[10px] truncate font-mono">{resultPreview}</span>
+            )}
+          </button>
+          {resultExpanded && (
+            <div className="px-3 py-2 text-terminal-text-secondary text-[11px] whitespace-pre-wrap break-words border-t border-terminal-border/40 bg-terminal-surface/30 max-h-80 overflow-y-auto font-mono">
+              {section.toolResult!.trim()}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -164,10 +251,10 @@ function ThinkingSection({ content }: { content: string }) {
     <div className="my-1">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-start gap-2 px-2 py-1 text-left hover:bg-neutral-800/30 rounded transition-colors"
+        className="w-full flex items-start gap-2 px-2 py-1 text-left hover:bg-terminal-hover/30 rounded transition-colors"
       >
-        <span className="text-neutral-500 text-[10px] shrink-0 mt-0.5">{expanded ? '▼' : '▶'}</span>
-        <span className="text-neutral-400/70 text-[11px]">
+        <span className="text-terminal-text-muted text-[10px] shrink-0 mt-0.5">{expanded ? '▼' : '▶'}</span>
+        <span className="text-terminal-text-secondary/70 text-[11px]">
           {expanded ? content : preview + (content.length > 150 ? '...' : '')}
         </span>
       </button>
@@ -188,20 +275,35 @@ const VISIBLE_SECTIONS = 100;
 
 export function StreamingLog({ entries }: StreamingLogProps) {
   const endRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const sections = useMemo(() => buildSections(entries), [entries]);
   const [showAll, setShowAll] = useState(false);
+  const isNearBottomRef = useRef(true);
 
   const hiddenCount = showAll ? 0 : Math.max(0, sections.length - VISIBLE_SECTIONS);
   const visibleSections = showAll ? sections : sections.slice(hiddenCount);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'auto' });
+    const container = containerRef.current;
+    if (!container) return;
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = container;
+      isNearBottomRef.current = scrollHeight - scrollTop - clientHeight < 40;
+    };
+    container.addEventListener('scroll', handleScroll);
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  useEffect(() => {
+    if (isNearBottomRef.current) {
+      endRef.current?.scrollIntoView({ behavior: 'auto' });
+    }
   }, [entries.length]);
 
   return (
-    <div className="flex-1 overflow-y-auto min-h-0 bg-surface-terminal rounded-lg p-3 font-mono text-xs leading-relaxed">
+    <div ref={containerRef} className="flex-1 overflow-y-auto min-h-0 bg-surface-terminal rounded-lg p-3 font-mono text-xs leading-relaxed">
       {entries.length === 0 && (
-        <div className="text-neutral-600 text-center py-8">
+        <div className="text-terminal-text-faint text-center py-8">
           Waiting for output...
         </div>
       )}
@@ -233,13 +335,13 @@ export function StreamingLog({ entries }: StreamingLogProps) {
         }
         if (section.kind === 'system') {
           return (
-            <div key={key} className="text-neutral-500/60 whitespace-pre-wrap break-words my-0.5 text-[10px]">
+            <div key={key} className="text-terminal-text-muted/60 whitespace-pre-wrap break-words my-0.5 text-[10px]">
               {section.content}
             </div>
           );
         }
         return (
-          <div key={key} className="text-neutral-200 whitespace-pre-wrap break-words my-2 leading-relaxed">
+          <div key={key} className="text-terminal-text whitespace-pre-wrap break-words my-2 leading-relaxed">
             {section.content}
           </div>
         );
