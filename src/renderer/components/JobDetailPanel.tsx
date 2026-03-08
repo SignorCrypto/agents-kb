@@ -7,7 +7,6 @@ import { Kbd } from './Kbd';
 import { StreamingLog } from './StreamingLog';
 import { DiffViewer } from './DiffViewer';
 import { MentionInput } from './MentionInput';
-import { AcceptJobDialog } from './AcceptJobDialog';
 import { formatDuration, useNow } from '../utils/duration';
 import type { Job, FollowUp, GitSnapshot, AppSettings, OutputEntry } from '../types/index';
 import { MODEL_CATALOG, EFFORT_CATALOG } from '../types/index';
@@ -28,7 +27,6 @@ export function JobDetailPanel() {
   const [doneTab, setDoneTab] = useState<'summary' | 'diff' | 'log'>('summary');
   const [showLog, setShowLog] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [showAcceptDialog, setShowAcceptDialog] = useState(false);
 
   const job = jobs.find((j) => j.id === selectedJobId);
   const outputLog = useJobOutput(selectedJobId || '');
@@ -61,6 +59,7 @@ export function JobDetailPanel() {
 
   const handleAcceptPlan = async () => {
     await api.jobsAcceptPlan(job.id);
+    selectJob(null);
   };
 
   const handleEditPlan = async () => {
@@ -79,10 +78,6 @@ export function JobDetailPanel() {
       useKanbanStore.getState().updateJob(updated);
     }
     setFollowUpText('');
-  };
-
-  const handleAcceptJob = () => {
-    setShowAcceptDialog(true);
   };
 
   const handleRejectJob = async (snapshotIndex?: number) => {
@@ -131,8 +126,24 @@ export function JobDetailPanel() {
       <div className="shrink-0 border-b border-chrome-subtle/70">
         {/* Top row: project/branch + action icons */}
         <div className="flex items-center justify-between px-4 pt-2.5">
-          <div className="flex items-center gap-2 text-[10px] text-content-tertiary uppercase tracking-wider min-w-0">
-            <span>{project?.name || 'Unknown'}</span>
+          <div className="flex items-center gap-1.5 text-[10px] text-content-tertiary uppercase tracking-wider min-w-0">
+            {project ? (
+              <button
+                onClick={() => api.projectsOpenInEditor(project.id, job.branch)}
+                className="group/open flex items-center gap-1.5 hover:text-content-secondary transition-colors rounded -ml-1 px-1 py-0.5"
+                title={`Open ${project.isGitRepo ? 'in editor' : 'folder'}${job.branch ? ` on ${job.branch}` : ''}`}
+              >
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 opacity-50 group-hover/open:opacity-100 transition-opacity">
+                  <rect x="2" y="2" width="12" height="12" rx="2" />
+                  <path d="M5.5 6L4 8l1.5 2" />
+                  <path d="M10.5 6L12 8l-1.5 2" />
+                  <path d="M9 5l-2 6" />
+                </svg>
+                <span>{project.name}</span>
+              </button>
+            ) : (
+              <span>Unknown</span>
+            )}
             {job.branch && (
               <span className="flex items-center gap-1 normal-case tracking-normal text-[11px] font-medium text-content-secondary bg-surface-tertiary/60 rounded px-1.5 py-0.5 max-w-[180px]">
                 <BranchIcon size={12} className="shrink-0" />
@@ -141,88 +152,74 @@ export function JobDetailPanel() {
             )}
           </div>
           <div className="flex items-center gap-0.5 shrink-0">
-          {/* Accept — for completed jobs on git repos */}
-          {job.status === 'completed' && project?.isGitRepo !== false && (
-            <button
-              onClick={handleAcceptJob}
-              className="p-1.5 text-semantic-success/70 hover:text-semantic-success hover:bg-semantic-success/10 transition-colors rounded"
-              aria-label="Accept changes"
-              title="Accept changes"
-            >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 8.5l3.5 3.5L13 5" />
-              </svg>
-            </button>
-          )}
-
-          {/* Cancel — inline for active jobs */}
-          {isActive && (
-            <button
-              onClick={handleCancel}
-              className="p-1.5 text-semantic-error/70 hover:text-semantic-error hover:bg-semantic-error-bg/10 transition-colors rounded"
-              aria-label="Cancel job"
-              title="Cancel job"
-            >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                <circle cx="8" cy="8" r="6" />
-                <path d="M6 6l4 4M10 6l-4 4" />
-              </svg>
-            </button>
-          )}
-
-          {/* Delete */}
-          {canDelete && (
-            <div className="relative">
+            {/* Cancel — inline for active jobs */}
+            {isActive && (
               <button
-                onClick={() => setConfirmDelete(true)}
-                className="p-1.5 text-content-tertiary hover:text-semantic-error transition-colors rounded"
-                aria-label="Delete job"
-                title="Delete job"
+                onClick={handleCancel}
+                className="p-1.5 text-semantic-error/70 hover:text-semantic-error hover:bg-semantic-error-bg/10 transition-colors rounded"
+                aria-label="Cancel job"
+                title="Cancel job"
               >
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 4h10M6 4V3a1 1 0 011-1h2a1 1 0 011 1v1" />
-                  <path d="M4.5 4l.5 9a1 1 0 001 1h4a1 1 0 001-1l.5-9" />
-                  <line x1="6.5" y1="7" x2="6.5" y2="11" />
-                  <line x1="9.5" y1="7" x2="9.5" y2="11" />
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                  <circle cx="8" cy="8" r="6" />
+                  <path d="M6 6l4 4M10 6l-4 4" />
                 </svg>
               </button>
+            )}
 
-              {/* Delete confirmation popover */}
-              {confirmDelete && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setConfirmDelete(false)} />
-                  <div className="absolute right-0 top-full mt-1 z-50 bg-surface-elevated border border-chrome rounded-lg shadow-lg p-3 w-[200px]">
-                    <p className="text-xs text-content-secondary mb-2">Delete this job permanently?</p>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => setConfirmDelete(false)}
-                        className="flex-1 px-2 py-1.5 text-xs rounded border border-chrome text-content-secondary hover:bg-surface-tertiary transition-colors"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        onClick={handleDelete}
-                        className="flex-1 px-2 py-1.5 text-xs rounded bg-semantic-error text-white hover:bg-semantic-error/80 transition-colors"
-                      >
-                        Delete
-                      </button>
+            {/* Delete */}
+            {canDelete && (
+              <div className="relative">
+                <button
+                  onClick={() => setConfirmDelete(true)}
+                  className="p-1.5 text-content-tertiary hover:text-semantic-error transition-colors rounded"
+                  aria-label="Delete job"
+                  title="Delete job"
+                >
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 4h10M6 4V3a1 1 0 011-1h2a1 1 0 011 1v1" />
+                    <path d="M4.5 4l.5 9a1 1 0 001 1h4a1 1 0 001-1l.5-9" />
+                    <line x1="6.5" y1="7" x2="6.5" y2="11" />
+                    <line x1="9.5" y1="7" x2="9.5" y2="11" />
+                  </svg>
+                </button>
+
+                {/* Delete confirmation popover */}
+                {confirmDelete && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setConfirmDelete(false)} />
+                    <div className="absolute right-0 top-full mt-1 z-50 bg-surface-elevated border border-chrome rounded-lg shadow-lg p-3 w-[200px]">
+                      <p className="text-xs text-content-secondary mb-2">Delete this job permanently?</p>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setConfirmDelete(false)}
+                          className="flex-1 px-2 py-1.5 text-xs rounded border border-chrome text-content-secondary hover:bg-surface-tertiary transition-colors"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={handleDelete}
+                          className="flex-1 px-2 py-1.5 text-xs rounded bg-semantic-error text-white hover:bg-semantic-error/80 transition-colors"
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
+                  </>
+                )}
+              </div>
+            )}
 
-          {/* Close */}
-          <button
-            onClick={() => selectJob(null)}
-            className="p-1.5 text-content-tertiary hover:text-content-secondary transition-colors rounded"
-            aria-label="Close panel"
-          >
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <path d="M4 4l8 8M12 4l-8 8" />
-            </svg>
-          </button>
+            {/* Close */}
+            <button
+              onClick={() => selectJob(null)}
+              className="p-1.5 text-content-tertiary hover:text-content-secondary transition-colors rounded"
+              aria-label="Close panel"
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M4 4l8 8M12 4l-8 8" />
+              </svg>
+            </button>
           </div>
         </div>
 
@@ -342,16 +339,6 @@ export function JobDetailPanel() {
 
       {/* Phase durations — bottom footer */}
       <DetailPhaseDurations job={job} now={now} settings={settings} />
-
-      {/* Accept dialog */}
-      {showAcceptDialog && (
-        <AcceptJobDialog
-          jobId={job.id}
-          initialMessage={job.generatedCommitMessage}
-          onClose={() => setShowAcceptDialog(false)}
-          onAccepted={() => setShowAcceptDialog(false)}
-        />
-      )}
     </div>
   );
 }

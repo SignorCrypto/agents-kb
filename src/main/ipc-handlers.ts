@@ -1,4 +1,4 @@
-import { ipcMain, dialog, BrowserWindow, nativeTheme } from 'electron';
+import { ipcMain, dialog, BrowserWindow, nativeTheme, shell } from 'electron';
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import fs from 'fs';
@@ -229,7 +229,7 @@ async function startClaudeSession(job: Job, getWindow: WindowGetter, batchedSend
     if (updated) {
       sendToRenderer(getWindow, 'job:status-changed', updated);
       sendToRenderer(getWindow, 'job:needs-input', { jobId: job.id, question });
-      notifyInputNeeded(job.id, question.text, getWindow);
+      notifyInputNeeded(job.id, project.name, job.title || job.prompt, question.text, getWindow);
     }
   });
 
@@ -265,7 +265,7 @@ async function startClaudeSession(job: Job, getWindow: WindowGetter, batchedSend
       });
       if (updated) {
         sendToRenderer(getWindow, 'job:status-changed', updated);
-        notifyPlanReady(job.id, getWindow);
+        notifyPlanReady(job.id, project.name, job.title || job.prompt, getWindow);
       }
     }
   });
@@ -283,7 +283,7 @@ async function startClaudeSession(job: Job, getWindow: WindowGetter, batchedSend
         if (updated) {
           sendToRenderer(getWindow, 'job:status-changed', updated);
           sendToRenderer(getWindow, 'job:error', { jobId: job.id, error: updated.error! });
-          notifyJobError(job.id, updated.error!, getWindow);
+          notifyJobError(job.id, project.name, job.title || job.prompt, updated.error!, getWindow);
         }
       }
       return;
@@ -299,20 +299,16 @@ async function startClaudeSession(job: Job, getWindow: WindowGetter, batchedSend
         status: 'completed',
         pendingQuestion: undefined,
         completedAt: new Date().toISOString(),
-        generatedCommitMessage: undefined,
         editedFiles: editedFiles.length > 0 ? editedFiles : undefined,
       });
       if (updated) {
         sendToRenderer(getWindow, 'job:status-changed', updated);
         sendToRenderer(getWindow, 'job:complete', { jobId: job.id });
-        notifyJobComplete(job.id, getWindow);
+        notifyJobComplete(job.id, project.name, job.title || job.prompt, getWindow);
 
-        // Generate commit message in the background (git repos only)
+        // Pre-generate branch commit messages for the project commit flow.
         const completedProject = getProjects().find(p => p.id === job.projectId);
         if (completedProject && projectIsGitRepo(completedProject)) {
-          generateCommitMessageInBackground(job.id, getWindow);
-
-          // Pre-generate branch commit message
           (async () => {
             const branch = job.branch || (await listBranches(completedProject.path))?.current;
             if (branch) generateAndCacheBranchCommitMessage(job.projectId, branch);
@@ -328,7 +324,7 @@ async function startClaudeSession(job: Job, getWindow: WindowGetter, batchedSend
         });
         if (updated) {
           sendToRenderer(getWindow, 'job:status-changed', updated);
-          notifyPlanReady(job.id, getWindow);
+          notifyPlanReady(job.id, project.name, job.title || job.prompt, getWindow);
         }
       }
     }
@@ -342,7 +338,7 @@ async function startClaudeSession(job: Job, getWindow: WindowGetter, batchedSend
     if (updated) {
       sendToRenderer(getWindow, 'job:status-changed', updated);
       sendToRenderer(getWindow, 'job:error', { jobId: job.id, error: errorMsg });
-      notifyJobError(job.id, errorMsg, getWindow);
+      notifyJobError(job.id, project.name, job.title || job.prompt, errorMsg, getWindow);
     }
   });
 
@@ -430,31 +426,6 @@ async function generateTitleInBackground(
   }
 }
 
-async function generateCommitMessageInBackground(jobId: string, getWindow: WindowGetter) {
-  try {
-    const job = getJob(jobId);
-    if (!job) return;
-    const project = getProjects().find(p => p.id === job.projectId);
-    if (!project) return;
-
-    const config = getPromptConfig('commit');
-    const prompt = buildPromptText(config);
-    const message = await runClaudePrint(project.path, prompt, { model: config.model, effort: config.effort });
-    if (!message) return;
-
-    // Only store if job is still completed (not accepted/rejected in the meantime)
-    const current = getJob(jobId);
-    if (current?.status !== 'completed') return;
-
-    const updated = updateJob(jobId, { generatedCommitMessage: message });
-    if (updated) {
-      sendToRenderer(getWindow, 'job:status-changed', updated);
-    }
-  } catch {
-    // Best-effort — don't block anything on failure
-  }
-}
-
 export function registerIpcHandlers(getWindow: WindowGetter): void {
   const batchedSender = new BatchedSender(getWindow);
   batchedSender.start();
@@ -507,6 +478,79 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
 
   ipcMain.handle('projects:set-default-branch', (_event, id: string, branch: string | null) => {
     return setProjectDefaultBranch(id, branch);
+  });
+
+  ipcMain.handle('projects:open-in-editor', async (_event, projectId: string, branch?: string) => {
+    const project = getProjects().find(p => p.id === projectId);
+    if (!project) return { success: false, error: 'Project not found' };
+
+    // Check git status — isGitRepo may be undefined for older projects
+    const isGit = project.isGitRepo ?? await isGitRepoRoot(project.path);
+
+    // Non-git projects: open folder in file manager
+    if (!isGit) {
+      await shell.openPath(project.path);
+      return { success: true, editor: 'finder' };
+    }
+
+    // Checkout branch if specified
+    if (branch) {
+      try {
+        await checkoutBranch(project.path, branch);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Failed to checkout branch';
+        return { success: false, error: message };
+      }
+    }
+
+    // Git repos: open in preferred editor
+    const settings = getSettings();
+    const preferred = settings.preferredEditor ?? 'auto';
+    const { spawn: spawnProc } = await import('child_process');
+    const { existsSync } = await import('fs');
+
+    // Editor definitions with bundled CLI paths inside .app bundles (macOS)
+    const EDITORS: { key: string; cli: string; appBin: string; appDir: string }[] = [
+      {
+        key: 'cursor',
+        cli: 'cursor',
+        appBin: '/Applications/Cursor.app/Contents/Resources/app/bin/cursor',
+        appDir: '/Applications/Cursor.app',
+      },
+      {
+        key: 'vscode',
+        cli: 'code',
+        appBin: '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code',
+        appDir: '/Applications/Visual Studio Code.app',
+      },
+    ];
+
+    const tryEditor = (editor: typeof EDITORS[number]): boolean => {
+      // 1) macOS: use the CLI script bundled inside the .app
+      if (process.platform === 'darwin' && existsSync(editor.appBin)) {
+        const child = spawnProc(editor.appBin, [project.path], {
+          detached: true,
+          stdio: 'ignore',
+        });
+        child.unref();
+        return true;
+      }
+
+      return false;
+    };
+
+    const order: typeof EDITORS[number][] =
+      preferred === 'cursor' ? [EDITORS[0]] :
+      preferred === 'vscode' ? [EDITORS[1]] :
+      EDITORS; // auto: try cursor first, then vscode
+
+    for (const editor of order) {
+      if (tryEditor(editor)) return { success: true, editor: editor.key };
+    }
+
+    // No editor found — open folder
+    await shell.openPath(project.path);
+    return { success: true, editor: 'finder' };
   });
 
   ipcMain.handle('git:list-branches', (_event, projectId: string) => {
@@ -928,7 +972,7 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     const job = getJob(jobId);
     if (!job) throw new Error('Job not found');
 
-    // Return stored diff if available (from accepted/rejected jobs)
+    // Return stored diff if available from a previously resolved job.
     if (job.diffText != null) return job.diffText;
 
     // Compute live diff from the first (original) snapshot
@@ -938,55 +982,6 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     if (!project) return null;
 
     return getDiff(project.path, snapshots[0]);
-  });
-
-  ipcMain.handle('jobs:accept-job', async (_event, jobId: string, commitMessage?: string) => {
-    const job = getJob(jobId);
-    if (!job) throw new Error('Job not found');
-    if (job.status !== 'completed') throw new Error('Job is not completed');
-
-    const project = getProjects().find(p => p.id === job.projectId);
-    const snapshots = job.gitSnapshots || [];
-
-    // Capture diff from original snapshot before cleaning up
-    let diffText: string | undefined;
-    if (snapshots.length > 0 && project) {
-      diffText = await getDiff(project.path, snapshots[0]);
-    }
-
-    // Stage and commit if a message was provided
-    let committedSha: string | undefined;
-    if (commitMessage && project) {
-      await gitStageAll(project.path);
-      committedSha = await gitCommit(project.path, commitMessage);
-    }
-
-    if (snapshots.length > 0 && project) {
-      await cleanupAllSnapshots(project.path, snapshots);
-    }
-
-    const updated = updateJob(jobId, {
-      status: 'accepted',
-      acceptedAt: new Date().toISOString(),
-      gitSnapshots: undefined,
-      diffText,
-      committedSha,
-    });
-    if (updated) {
-      sendToRenderer(getWindow, 'job:status-changed', updated);
-    }
-  });
-
-  ipcMain.handle('jobs:generate-commit-message', async (_event, jobId: string) => {
-    const job = getJob(jobId);
-    if (!job) throw new Error('Job not found');
-
-    const project = getProjects().find(p => p.id === job.projectId);
-    if (!project) throw new Error('Project not found');
-
-    const config = getPromptConfig('commit');
-    const prompt = buildPromptText(config);
-    return runClaudePrint(project.path, prompt, { model: config.model, effort: config.effort });
   });
 
   // === Settings ===

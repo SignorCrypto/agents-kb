@@ -46,6 +46,7 @@ function ProjectDetailDialog({
   const [isEditing, setIsEditing] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [activeTab, setActiveTab] = useState<DetailTab>('details');
+  const preferredEditor = useKanbanStore((s) => s.settings.preferredEditor ?? 'auto');
   const [branches, setBranches] = useState<string[]>([]);
   const [loadingBranches, setLoadingBranches] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -244,7 +245,25 @@ function ProjectDetailDialog({
             </div>
 
             {/* Footer actions */}
-            <div className="border-t border-chrome-subtle/70 px-4 py-2.5 mt-auto shrink-0">
+            <div className="border-t border-chrome-subtle/70 px-4 py-2.5 mt-auto shrink-0 space-y-2">
+              <button
+                onClick={() => api.projectsOpenInEditor(project.id)}
+                className="flex items-center gap-1.5 text-[11px] text-content-tertiary hover:text-content-secondary transition-colors"
+              >
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 2H4a1 1 0 00-1 1v10a1 1 0 001 1h8a1 1 0 001-1V6l-4-4z" />
+                  <path d="M9 2v4h4" />
+                  <path d="M7 9l-1.5 1.5L7 12" />
+                  <path d="M10 9l1.5 1.5L10 12" />
+                </svg>
+                {!project.isGitRepo
+                  ? 'Open Folder'
+                  : preferredEditor === 'cursor'
+                    ? 'Open in Cursor'
+                    : preferredEditor === 'vscode'
+                      ? 'Open in VS Code'
+                      : 'Open in Editor'}
+              </button>
               {confirmRemove ? (
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] text-semantic-error">Remove project?</span>
@@ -373,14 +392,6 @@ export function ProjectManager() {
       setCommitError(result.error || 'Commit failed');
       setCommitLoading(false);
       return;
-    }
-
-    // Auto-accept all completed jobs on this project+branch
-    const projectJobs = jobs.filter(
-      (j) => j.projectId === commitDialog.projectId && j.status === 'completed' && (j.branch === commitDialog.branch || (!j.branch && branchStatuses.get(commitDialog.projectId)?.find((b) => b.name === commitDialog.branch)?.isCurrent))
-    );
-    for (const j of projectJobs) {
-      try { await api.jobsAcceptJob(j.id); } catch { /* best effort */ }
     }
 
     setCommitLoading(false);

@@ -63,6 +63,8 @@ export interface ShortcutBinding {
   enabled: boolean;
 }
 
+export type PreferredEditor = 'auto' | 'cursor' | 'vscode';
+
 export interface AppSettings {
   theme: ThemeMode;
   showShortcutHints: boolean;
@@ -74,6 +76,8 @@ export interface AppSettings {
   defaultEffort: EffortLevel;
   alwaysShowModelEffort: boolean;
   showModelEffortInNewJob: boolean;
+  preferredEditor: PreferredEditor;
+  notificationsEnabled: boolean;
 }
 
 export const DEFAULT_SHORTCUTS: ShortcutBinding[] = [
@@ -105,6 +109,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultEffort: "default",
   alwaysShowModelEffort: false,
   showModelEffortInNewJob: false,
+  preferredEditor: "auto",
+  notificationsEnabled: true,
 };
 
 /* ─── Kanban ─── */

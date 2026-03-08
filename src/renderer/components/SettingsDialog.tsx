@@ -4,7 +4,7 @@ import { useKanbanStore } from '../hooks/useKanbanStore';
 import { useElectronAPI } from '../hooks/useElectronAPI';
 import { KbdRaw } from './Kbd';
 import { SegmentedPicker } from './SegmentedPicker';
-import type { AppSettings, ShortcutBinding, ThemeMode, PromptConfig } from '../types/index';
+import type { AppSettings, ShortcutBinding, ThemeMode, PromptConfig, PreferredEditor } from '../types/index';
 import { DEFAULT_SETTINGS, MODEL_CATALOG, EFFORT_CATALOG, DEFAULT_PROMPT_CONFIGS } from '../types/index';
 
 const isMac =
@@ -161,6 +161,30 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
               value={local.theme}
               onChange={(theme) => save({ ...local, theme })}
             />
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-[13px] text-content-primary">Preferred Editor</div>
+              <div className="text-[11px] text-content-tertiary mt-0.5">
+                Editor to open git projects in (Auto tries Cursor, then VS Code)
+              </div>
+            </div>
+            <SegmentedPicker
+              options={EDITOR_OPTIONS}
+              value={local.preferredEditor ?? 'auto'}
+              onChange={(preferredEditor) => save({ ...local, preferredEditor })}
+            />
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-[13px] text-content-primary">Notifications</div>
+              <div className="text-[11px] text-content-tertiary mt-0.5">
+                Show system notifications for job events
+              </div>
+            </div>
+            <Toggle checked={local.notificationsEnabled} onChange={() => save({ ...local, notificationsEnabled: !local.notificationsEnabled })} />
           </div>
 
           <div className="border-t border-chrome-subtle/40" />
@@ -368,6 +392,12 @@ const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
   { value: 'system', label: 'System' },
   { value: 'light', label: 'Light' },
   { value: 'dark', label: 'Dark' },
+];
+
+const EDITOR_OPTIONS: { value: PreferredEditor; label: string }[] = [
+  { value: 'auto', label: 'Auto' },
+  { value: 'cursor', label: 'Cursor' },
+  { value: 'vscode', label: 'VS Code' },
 ];
 
 

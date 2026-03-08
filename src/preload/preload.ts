@@ -9,6 +9,7 @@ const api: ElectronAPI = {
   projectsRemove: (id) => ipcRenderer.invoke('projects:remove', id),
   projectsReorder: (orderedIds) => ipcRenderer.invoke('projects:reorder', orderedIds),
   projectsSetDefaultBranch: (id, branch) => ipcRenderer.invoke('projects:set-default-branch', id, branch),
+  projectsOpenInEditor: (id, branch) => ipcRenderer.invoke('projects:open-in-editor', id, branch),
 
   // Git
   gitListBranches: (projectId) => ipcRenderer.invoke('git:list-branches', projectId),
@@ -28,8 +29,6 @@ const api: ElectronAPI = {
   jobsEditPlan: (jobId, feedback) => ipcRenderer.invoke('jobs:edit-plan', jobId, feedback),
   jobsAcceptPlan: (jobId) => ipcRenderer.invoke('jobs:accept-plan', jobId),
   jobsGetDiff: (jobId) => ipcRenderer.invoke('jobs:get-diff', jobId),
-  jobsAcceptJob: (jobId, commitMessage) => ipcRenderer.invoke('jobs:accept-job', jobId, commitMessage),
-  jobsGenerateCommitMessage: (jobId) => ipcRenderer.invoke('jobs:generate-commit-message', jobId),
   jobsRejectJob: (jobId, snapshotIndex) => ipcRenderer.invoke('jobs:reject-job', jobId, snapshotIndex),
   jobsFollowUp: (jobId, prompt) => ipcRenderer.invoke('jobs:follow-up', jobId, prompt),
 

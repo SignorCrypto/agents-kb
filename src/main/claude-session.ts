@@ -1,4 +1,6 @@
 import * as nodePty from 'node-pty';
+import * as fs from 'fs';
+import * as path from 'path';
 import { EventEmitter } from 'events';
 import { v4 as uuidv4 } from 'uuid';
 import type { OutputEntry, PendingQuestion, QuestionOption } from '../shared/types';
@@ -28,6 +30,7 @@ export class ClaudeSession extends EventEmitter {
   private planEmitted = false;
   private assistantTextBuffer = '';
   private isAskingQuestion = false;
+  private pendingPlanFileRead = '';
 
   constructor(private options: ClaudeSessionOptions) {
     super();
@@ -58,7 +61,7 @@ export class ClaudeSession extends EventEmitter {
     }
 
     if (this.options.phase === 'plan') {
-      args.push('--permission-mode', 'plan');
+      args.push('--permission-mode', 'default');
     } else {
       args.push('--dangerously-skip-permissions');
     }
@@ -245,16 +248,53 @@ export class ClaudeSession extends EventEmitter {
       }
 
       case 'user': {
-        // Tool results come back as user messages containing tool_result content
-        const content = msg.content as Array<{ type: string; content?: string; tool_use_id?: string }> | undefined;
-        if (Array.isArray(content)) {
-          for (const block of content) {
-            if (block.type === 'tool_result' && block.content) {
+        // Read the full plan file from disk after an Edit tool modified it
+        if (this.pendingPlanFileRead) {
+          const planPath = this.pendingPlanFileRead;
+          this.pendingPlanFileRead = '';
+          try {
+            const planContent = fs.readFileSync(planPath, 'utf-8');
+            if (planContent.trim()) {
+              this.planEmitted = true;
               this.emit('output', {
                 timestamp: new Date().toISOString(),
-                type: 'tool-result',
-                content: typeof block.content === 'string' ? block.content : JSON.stringify(block.content),
+                type: 'plan',
+                content: planContent,
               } satisfies OutputEntry);
+              this.emit('plan-text', planContent);
+            }
+          } catch (err) {
+            console.log('[claude-session] Failed to read edited plan file:', planPath, err);
+          }
+        }
+
+        // Tool results come back as user messages containing tool_result content blocks
+        const content = msg.content as Array<Record<string, unknown>> | undefined;
+        if (Array.isArray(content)) {
+          for (const block of content) {
+            if (block.type === 'tool_result') {
+              const resultContent = block.content;
+              if (!resultContent) continue;
+              let text: string;
+              if (typeof resultContent === 'string') {
+                text = resultContent;
+              } else if (Array.isArray(resultContent)) {
+                // Content blocks array — extract text from text blocks
+                text = (resultContent as Array<Record<string, unknown>>)
+                  .filter((b) => b.type === 'text' && b.text)
+                  .map((b) => b.text as string)
+                  .join('\n');
+                if (!text) text = JSON.stringify(resultContent);
+              } else {
+                text = JSON.stringify(resultContent);
+              }
+              if (text) {
+                this.emit('output', {
+                  timestamp: new Date().toISOString(),
+                  type: 'tool-result',
+                  content: text,
+                } satisfies OutputEntry);
+              }
             }
           }
         }
@@ -282,11 +322,15 @@ export class ClaudeSession extends EventEmitter {
       }
 
       default: {
-        this.emit('output', {
-          timestamp: new Date().toISOString(),
-          type: 'system',
-          content: JSON.stringify(msg),
-        } satisfies OutputEntry);
+        // Unknown top-level type — extract readable content instead of raw JSON dump
+        const readable = this.extractReadableContent(msg);
+        if (readable) {
+          this.emit('output', {
+            timestamp: new Date().toISOString(),
+            type: 'system',
+            content: readable,
+          } satisfies OutputEntry);
+        }
       }
     }
   }
@@ -409,6 +453,21 @@ export class ClaudeSession extends EventEmitter {
           }
         }
 
+        // Check if this tool edited the plan file — schedule a file read on next tool result
+        if (this.currentToolName === 'Edit' && this.currentToolBuffer) {
+          try {
+            const input = JSON.parse(this.currentToolBuffer);
+            if (input.file_path && input.file_path.includes('.claude/plans/')) {
+              const filePath = path.isAbsolute(input.file_path)
+                ? input.file_path
+                : path.join(this.options.projectPath, input.file_path);
+              this.pendingPlanFileRead = filePath;
+            }
+          } catch {
+            // JSON not complete, ignore
+          }
+        }
+
         this.currentToolBuffer = '';
         this.currentToolName = '';
         break;
@@ -419,45 +478,100 @@ export class ClaudeSession extends EventEmitter {
     }
   }
 
+  /**
+   * Format a system message into a human-readable string.
+   * Returns empty string to suppress the message entirely.
+   */
   private formatSystemMessage(msg: Record<string, unknown>): string {
-    // Explicit message field
-    if (msg.message && typeof msg.message === 'string') {
-      return msg.message;
-    }
-
     const subtype = msg.subtype as string | undefined;
 
-    if (subtype === 'init') {
-      return `Session started (${msg.session_id})`;
-    }
+    switch (subtype) {
+      case 'init':
+        return `Session started (${msg.session_id})`;
 
-    if (subtype === 'task_notification') {
-      const status = msg.status as string || 'unknown';
-      const summary = msg.summary as string || '';
-      const usage = msg.usage as { total_tokens?: number; tool_uses?: number; duration_ms?: number } | undefined;
-      const parts = [summary ? `Task ${status}: ${summary}` : `Task ${status}`];
-      if (usage) {
-        const details: string[] = [];
-        if (usage.tool_uses != null) details.push(`${usage.tool_uses} tool uses`);
-        if (usage.duration_ms != null) details.push(`${(usage.duration_ms / 1000).toFixed(1)}s`);
-        if (usage.total_tokens != null) details.push(`${usage.total_tokens.toLocaleString()} tokens`);
-        if (details.length > 0) parts.push(`(${details.join(', ')})`);
+      case 'task_started': {
+        const description = msg.description as string | undefined;
+        const taskType = msg.task_type as string | undefined;
+        const label = taskType === 'local_agent' ? 'Subagent' : (taskType || 'Task');
+        return description ? `${label} started: ${description}` : `${label} started`;
       }
-      return parts.join(' ');
-    }
 
-    if (subtype === 'task_progress') {
-      const description = msg.description as string | undefined;
-      const toolName = msg.last_tool_name as string | undefined;
-      if (description) {
-        return toolName ? `[${toolName}] ${description}` : description;
+      case 'task_progress': {
+        const description = msg.description as string | undefined;
+        const toolName = msg.last_tool_name as string | undefined;
+        if (description) {
+          return toolName ? `[${toolName}] ${description}` : description;
+        }
+        return '';
       }
-      // No description — suppress this message
-      return '';
-    }
 
-    // Fallback: stringify, but skip if it would be empty/trivial
-    return JSON.stringify(msg);
+      case 'task_notification': {
+        const status = msg.status as string || 'unknown';
+        const summary = msg.summary as string || '';
+        const usage = msg.usage as { total_tokens?: number; tool_uses?: number; duration_ms?: number } | undefined;
+        const parts = [summary ? `Task ${status}: ${summary}` : `Task ${status}`];
+        if (usage) {
+          const details: string[] = [];
+          if (usage.tool_uses != null) details.push(`${usage.tool_uses} tool uses`);
+          if (usage.duration_ms != null) details.push(`${(usage.duration_ms / 1000).toFixed(1)}s`);
+          if (usage.total_tokens != null) details.push(`${usage.total_tokens.toLocaleString()} tokens`);
+          if (details.length > 0) parts.push(`(${details.join(', ')})`);
+        }
+        return parts.join(' ');
+      }
+
+      case 'task_completed': {
+        const description = msg.description as string | undefined;
+        return description ? `Task completed: ${description}` : 'Task completed';
+      }
+
+      case 'api_request': {
+        // Internal API request telemetry — suppress from logs
+        return '';
+      }
+
+      default: {
+        // Fallback: use explicit message field if present, otherwise build from known fields
+        if (msg.message && typeof msg.message === 'string') {
+          return msg.message;
+        }
+        // Extract only meaningful fields for display, skip internal IDs / raw data
+        return this.extractReadableContent(msg);
+      }
+    }
+  }
+
+  /**
+   * Extract a human-readable summary from an arbitrary message object.
+   * Prioritizes display-friendly fields and suppresses internal/noisy ones.
+   */
+  private extractReadableContent(msg: Record<string, unknown>): string {
+    // Fields that carry user-meaningful information
+    const readableKeys = ['description', 'summary', 'message', 'status', 'error', 'reason', 'text', 'name', 'title'];
+    // Fields that are internal/noisy and should never be shown
+    const suppressKeys = new Set([
+      'type', 'subtype', 'task_id', 'tool_use_id', 'uuid', 'session_id',
+      'prompt', 'content', 'usage', 'task_type',
+    ]);
+
+    // Try to build from readable fields first
+    const parts: string[] = [];
+    for (const key of readableKeys) {
+      const val = msg[key];
+      if (val && typeof val === 'string') {
+        parts.push(val);
+      }
+    }
+    if (parts.length > 0) return parts.join(' — ');
+
+    // Last resort: show remaining non-suppressed scalar fields
+    const remaining: string[] = [];
+    for (const [key, val] of Object.entries(msg)) {
+      if (suppressKeys.has(key)) continue;
+      if (val == null || typeof val === 'object') continue;
+      remaining.push(`${key}: ${String(val)}`);
+    }
+    return remaining.length > 0 ? remaining.join(', ') : '';
   }
 
   private emitQuestion(input: Record<string, unknown>): void {

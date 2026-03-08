@@ -1,86 +1,101 @@
-import { Notification, app, BrowserWindow } from 'electron';
+import { Notification, app, BrowserWindow } from "electron";
+import { getSettings } from "./store";
 
-export function notifyInputNeeded(jobId: string, questionText: string, getWindow: () => BrowserWindow | null): void {
+interface NotifyOptions {
+  jobId: string;
+  projectName: string;
+  jobTitle: string;
+  subtitle: string;
+  body?: string;
+  getWindow: () => BrowserWindow | null;
+}
+
+function showNotification({ jobId, projectName, jobTitle, subtitle, body, getWindow }: NotifyOptions): void {
+  if (getSettings().notificationsEnabled === false) return;
+
   const notification = new Notification({
-    title: 'Claude needs your input',
+    title: projectName,
+    subtitle,
+    body: body ? `${jobTitle}\n${body}` : jobTitle,
+    silent: false,
+  });
+
+  notification.on("click", () => {
+    const win = getWindow();
+    if (win) {
+      win.show();
+      win.focus();
+      win.webContents.send("job:focus", { jobId });
+    }
+  });
+
+  notification.show();
+
+  if (process.platform === "darwin") {
+    app.dock?.bounce("informational");
+  }
+}
+
+export function notifyInputNeeded(
+  jobId: string,
+  projectName: string,
+  jobTitle: string,
+  questionText: string,
+  getWindow: () => BrowserWindow | null,
+): void {
+  showNotification({
+    jobId,
+    projectName,
+    jobTitle,
+    subtitle: "Claude needs your input",
     body: questionText.slice(0, 200),
-    silent: false,
+    getWindow,
   });
-
-  notification.on('click', () => {
-    const win = getWindow();
-    if (win) {
-      win.show();
-      win.focus();
-      win.webContents.send('job:focus', { jobId });
-    }
-  });
-
-  notification.show();
-
-  // Bounce dock icon on macOS
-  if (process.platform === 'darwin') {
-    app.dock?.bounce('informational');
-  }
 }
 
-export function notifyPlanReady(jobId: string, getWindow: () => BrowserWindow | null): void {
-  const notification = new Notification({
-    title: 'Plan ready for review',
-    body: 'Claude has finished planning. Review and accept to start development.',
-    silent: false,
+export function notifyPlanReady(
+  jobId: string,
+  projectName: string,
+  jobTitle: string,
+  getWindow: () => BrowserWindow | null,
+): void {
+  showNotification({
+    jobId,
+    projectName,
+    jobTitle,
+    subtitle: "Plan ready for review",
+    getWindow,
   });
-
-  notification.on('click', () => {
-    const win = getWindow();
-    if (win) {
-      win.show();
-      win.focus();
-      win.webContents.send('job:focus', { jobId });
-    }
-  });
-
-  notification.show();
-
-  if (process.platform === 'darwin') {
-    app.dock?.bounce('informational');
-  }
 }
 
-export function notifyJobComplete(jobId: string, getWindow: () => BrowserWindow | null): void {
-  const notification = new Notification({
-    title: 'Job completed',
-    body: 'Claude has finished the development task.',
-    silent: false,
+export function notifyJobComplete(
+  jobId: string,
+  projectName: string,
+  jobTitle: string,
+  getWindow: () => BrowserWindow | null,
+): void {
+  showNotification({
+    jobId,
+    projectName,
+    jobTitle,
+    subtitle: "Job completed",
+    getWindow,
   });
-
-  notification.on('click', () => {
-    const win = getWindow();
-    if (win) {
-      win.show();
-      win.focus();
-      win.webContents.send('job:focus', { jobId });
-    }
-  });
-
-  notification.show();
 }
 
-export function notifyJobError(jobId: string, error: string, getWindow: () => BrowserWindow | null): void {
-  const notification = new Notification({
-    title: 'Job failed',
+export function notifyJobError(
+  jobId: string,
+  projectName: string,
+  jobTitle: string,
+  error: string,
+  getWindow: () => BrowserWindow | null,
+): void {
+  showNotification({
+    jobId,
+    projectName,
+    jobTitle,
+    subtitle: "Job failed",
     body: error.slice(0, 200),
-    silent: false,
+    getWindow,
   });
-
-  notification.on('click', () => {
-    const win = getWindow();
-    if (win) {
-      win.show();
-      win.focus();
-      win.webContents.send('job:focus', { jobId });
-    }
-  });
-
-  notification.show();
 }

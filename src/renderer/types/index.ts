@@ -1,4 +1,4 @@
-export type { KanbanColumn, JobStatus, Project, OutputEntry, RawMessage, PendingQuestion, FollowUp, Job, GitSnapshot, ShortcutBinding, AppSettings, ThemeMode, ModelChoice, EffortLevel, ModelOption, EffortOption, PromptConfig, PromptId } from '../../shared/types';
+export type { KanbanColumn, JobStatus, Project, OutputEntry, RawMessage, PendingQuestion, FollowUp, Job, GitSnapshot, ShortcutBinding, AppSettings, ThemeMode, ModelChoice, EffortLevel, ModelOption, EffortOption, PromptConfig, PromptId, PreferredEditor } from '../../shared/types';
 export { DEFAULT_SETTINGS, DEFAULT_SHORTCUTS, DEFAULT_COMMIT_PROMPT, DEFAULT_PROMPT_CONFIGS, PROMPT_IDS, MODEL_CATALOG, EFFORT_CATALOG } from '../../shared/types';
 import type { Project, Job, OutputEntry, RawMessage, PendingQuestion, AppSettings, ModelChoice, EffortLevel } from '../../shared/types';
 
@@ -11,6 +11,7 @@ export interface ElectronAPI {
   projectsRemove: (id: string) => Promise<void>;
   projectsReorder: (orderedIds: string[]) => Promise<Project[]>;
   projectsSetDefaultBranch: (id: string, branch: string | null) => Promise<Project | undefined>;
+  projectsOpenInEditor: (id: string, branch?: string) => Promise<{ success: boolean; editor?: string; error?: string }>;
 
   // Git
   gitListBranches: (projectId: string) => Promise<{ branches: string[]; current: string } | null>;
@@ -30,8 +31,6 @@ export interface ElectronAPI {
   jobsEditPlan: (jobId: string, feedback: string) => Promise<Job>;
   jobsAcceptPlan: (jobId: string) => Promise<void>;
   jobsGetDiff: (jobId: string) => Promise<string | null>;
-  jobsAcceptJob: (jobId: string, commitMessage?: string) => Promise<void>;
-  jobsGenerateCommitMessage: (jobId: string) => Promise<string>;
   jobsRejectJob: (jobId: string, snapshotIndex?: number) => Promise<void>;
   jobsFollowUp: (jobId: string, prompt: string) => Promise<Job>;
 
