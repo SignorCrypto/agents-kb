@@ -5,3 +5,6 @@ dist/
 *.js.map
 .DS_Store
 .cursor/
+
+AGENTS.md
+CLAUDE.md
