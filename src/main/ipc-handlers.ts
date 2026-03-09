@@ -24,15 +24,28 @@ import {
 } from './store';
 import { sessionManager } from './session-manager';
 import { notifyInputNeeded, notifyPlanReady, notifyJobComplete, notifyJobError } from './notifications';
-import { isGitRepoRoot, captureSnapshot, restoreSnapshot, cleanupSnapshot, cleanupAllSnapshots, getDiff, listBranches, checkoutBranch, gitStageAll, gitCommit, getBranchesStatus, gitPush } from './git-snapshot';
+import { isGitRepoRoot, captureSnapshot, restoreSnapshot, cleanupAllSnapshots, getDiff, listBranches, checkoutBranch, gitStageAll, gitCommit, getBranchesStatus, gitPush } from './git-snapshot';
 import { listProjectFiles } from './file-list';
 import type { Job, OutputEntry, RawMessage, PendingQuestion, AppSettings, Project, ModelChoice, EffortLevel, PromptConfig } from '../shared/types';
 import { DEFAULT_PROMPT_CONFIGS } from '../shared/types';
+import {
+  JobStepHistoryTracker,
+  buildRollbackTargets,
+  buildStoredDiff,
+  getLatestProjectAppliedSeq,
+  getNextProjectAppliedSeq,
+  normalizeToolPath,
+  readCurrentStates,
+  serializeRollbackContext,
+  validateRollbackTargets,
+} from './job-step-history';
 
 type WindowGetter = () => BrowserWindow | null;
 
+const stepHistoryTracker = new JobStepHistoryTracker();
+
 /** Extract file paths touched by Write/Edit tools from the output log */
-function extractEditedFilePaths(entries: OutputEntry[]): string[] {
+function extractEditedFilePaths(entries: OutputEntry[], projectPath: string): string[] {
   const FILE_TOOLS = new Set(['Write', 'Edit', 'NotebookEdit']);
   const seen = new Set<string>();
   let currentTool = '';
@@ -43,7 +56,7 @@ function extractEditedFilePaths(entries: OutputEntry[]): string[] {
       try {
         const parsed = JSON.parse(toolBuffer);
         const filePath = (parsed.file_path || parsed.notebook_path) as string | undefined;
-        if (filePath) seen.add(filePath);
+        if (filePath) seen.add(normalizeToolPath(projectPath, filePath));
       } catch { /* incomplete JSON */ }
     }
     currentTool = '';
@@ -81,6 +94,26 @@ function sendToRenderer(getWindow: WindowGetter, channel: string, data: unknown)
   if (win && !win.isDestroyed()) {
     win.webContents.send(channel, data);
   }
+}
+
+function getStepLabel(order: number): string {
+  return order === 0 ? 'Initial development' : `Follow-up #${order}`;
+}
+
+async function cleanupCompletedJobsForBranch(project: Project, branch: string): Promise<string[]> {
+  const completedJobs = getJobs().filter(
+    (job) => job.projectId === project.id && job.branch === branch && job.status === 'completed',
+  );
+
+  for (const job of completedJobs) {
+    stepHistoryTracker.discardStep(job.id);
+    if (job.gitSnapshots?.length) {
+      await cleanupAllSnapshots(project.path, job.gitSnapshots);
+    }
+    deleteJob(job.id);
+  }
+
+  return completedJobs.map((job) => job.id);
 }
 
 // --- Batched IPC sender for high-frequency events ---
@@ -220,6 +253,10 @@ async function startClaudeSession(job: Job, getWindow: WindowGetter, batchedSend
     batchedSender.pushOutput(job.id, entry);
   });
 
+  session.on('tool-call', (payload: { name: string; input: Record<string, unknown> }) => {
+    void stepHistoryTracker.recordToolCall(job.id, project.path, payload);
+  });
+
   session.on('needs-input', (question: PendingQuestion) => {
     const updated = updateJob(job.id, {
       status: 'waiting-input',
@@ -270,11 +307,12 @@ async function startClaudeSession(job: Job, getWindow: WindowGetter, batchedSend
     }
   });
 
-  session.on('close', (code: number) => {
+  session.on('close', async (code: number) => {
     const current = getJob(job.id);
     if (!current) return;
 
     if (code !== 0 || current.status === 'error') {
+      stepHistoryTracker.discardStep(job.id);
       if (current.status !== 'error') {
         const updated = updateJob(job.id, {
           status: 'error',
@@ -292,7 +330,12 @@ async function startClaudeSession(job: Job, getWindow: WindowGetter, batchedSend
     if (phase === 'dev') {
       // Extract edited files from output log before completion
       const outputLog = getOutputLog(job.id);
-      const editedFiles = extractEditedFilePaths(outputLog);
+      const editedFiles = extractEditedFilePaths(outputLog, project.path);
+      const nextAppliedSeq = getNextProjectAppliedSeq(getJobs(), job.projectId);
+      const completedStep = await stepHistoryTracker.finalizeStep(job.id, project.path, nextAppliedSeq);
+      const nextStepSnapshots = completedStep
+        ? [...(current.stepSnapshots || []), completedStep]
+        : current.stepSnapshots;
 
       const updated = updateJob(job.id, {
         column: 'done',
@@ -300,6 +343,7 @@ async function startClaudeSession(job: Job, getWindow: WindowGetter, batchedSend
         pendingQuestion: undefined,
         completedAt: new Date().toISOString(),
         editedFiles: editedFiles.length > 0 ? editedFiles : undefined,
+        stepSnapshots: nextStepSnapshots,
       });
       if (updated) {
         sendToRenderer(getWindow, 'job:status-changed', updated);
@@ -331,6 +375,7 @@ async function startClaudeSession(job: Job, getWindow: WindowGetter, batchedSend
   });
 
   session.on('error', (errorMsg: string) => {
+    stepHistoryTracker.discardStep(job.id);
     const updated = updateJob(job.id, {
       status: 'error',
       error: errorMsg,
@@ -387,6 +432,92 @@ function runClaudePrint(projectPath: string, prompt: string, options?: { model?:
     child.stdin.write(prompt);
     child.stdin.end();
   });
+}
+
+function runClaudeEditTask(projectPath: string, prompt: string, options?: { model?: string; effort?: string }): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const { spawn } = require('child_process') as typeof import('child_process');
+    const args = ['-p', '--dangerously-skip-permissions'];
+    if (options?.model && options.model !== 'default') {
+      args.push('--model', options.model);
+    }
+    if (options?.effort && options.effort !== 'default') {
+      args.push('--effort', options.effort);
+    }
+
+    const child = spawn('claude', args, {
+      cwd: projectPath,
+      env: { ...process.env, FORCE_COLOR: '0' },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
+    child.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
+
+    child.on('error', reject);
+    child.on('close', (code: number | null) => {
+      if (code === 0) {
+        resolve(stdout.trim());
+      } else {
+        reject(new Error(`claude exited with code ${code}: ${stderr || stdout}`));
+      }
+    });
+
+    child.stdin.write(prompt);
+    child.stdin.end();
+  });
+}
+
+async function rollbackWithModel(job: Job, projectPath: string, targetIndex: number, targetLabel: string): Promise<void> {
+  const rollbackPlan = buildRollbackTargets(
+    job,
+    targetIndex,
+    await readCurrentStates(
+      projectPath,
+      Array.from(
+        new Set(
+          (job.stepSnapshots || [])
+            .filter((step) => step.order >= targetIndex)
+            .flatMap((step) => step.files.map((file) => file.path)),
+        ),
+      ),
+    ),
+  );
+
+  if (!rollbackPlan) {
+    throw new Error('No stored step snapshots are available for rollback');
+  }
+  if (rollbackPlan.unsupportedBinary.length > 0) {
+    throw new Error(
+      `Rollback requires manual handling for binary files: ${rollbackPlan.unsupportedBinary.join(', ')}`,
+    );
+  }
+  if (rollbackPlan.targets.length === 0) {
+    return;
+  }
+
+  const guardSnapshot = await captureSnapshot(projectPath, `${job.id}-rollback-guard`, Date.now(), 'Rollback guard');
+  const config = getPromptConfig('rollback');
+  const prompt = buildPromptText(config, `\n\n${serializeRollbackContext(rollbackPlan.targets, targetLabel)}`);
+
+  try {
+    await runClaudeEditTask(projectPath, prompt, { model: config.model, effort: config.effort });
+    const valid = await validateRollbackTargets(projectPath, rollbackPlan.targets);
+    if (!valid) {
+      throw new Error('Rollback output did not match the requested target state');
+    }
+  } catch (error) {
+    if (guardSnapshot) {
+      await restoreSnapshot(projectPath, guardSnapshot);
+    }
+    throw error;
+  } finally {
+    if (guardSnapshot) {
+      await cleanupAllSnapshots(projectPath, [guardSnapshot]);
+    }
+  }
 }
 
 async function generateTitleInBackground(
@@ -483,14 +614,21 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
   ipcMain.handle('projects:open-in-editor', async (_event, projectId: string, branch?: string) => {
     const project = getProjects().find(p => p.id === projectId);
     if (!project) return { success: false, error: 'Project not found' };
+    let skippedBranchCheckout = false;
+
+    const openFolder = async () => {
+      const error = await shell.openPath(project.path);
+      return error
+        ? { success: false, error }
+        : { success: true, editor: 'finder' };
+    };
 
     // Check git status — isGitRepo may be undefined for older projects
     const isGit = project.isGitRepo ?? await isGitRepoRoot(project.path);
 
     // Non-git projects: open folder in file manager
     if (!isGit) {
-      await shell.openPath(project.path);
-      return { success: true, editor: 'finder' };
+      return openFolder();
     }
 
     // Checkout branch if specified
@@ -499,7 +637,11 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
         await checkoutBranch(project.path, branch);
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : 'Failed to checkout branch';
-        return { success: false, error: message };
+        if (message.includes('Working tree is dirty')) {
+          skippedBranchCheckout = true;
+        } else {
+          return { success: false, error: message };
+        }
       }
     }
 
@@ -509,31 +651,73 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     const { spawn: spawnProc } = await import('child_process');
     const { existsSync } = await import('fs');
 
-    // Editor definitions with bundled CLI paths inside .app bundles (macOS)
-    const EDITORS: { key: string; cli: string; appBin: string; appDir: string }[] = [
+    const launchDetached = (command: string, args: string[]): Promise<boolean> =>
+      new Promise((resolve) => {
+        try {
+          const child = spawnProc(command, args, {
+            detached: true,
+            stdio: 'ignore',
+          });
+
+          let settled = false;
+          const finish = (ok: boolean) => {
+            if (settled) return;
+            settled = true;
+            resolve(ok);
+          };
+
+          child.once('error', () => finish(false));
+          child.once('spawn', () => {
+            child.unref();
+            finish(true);
+          });
+        } catch {
+          resolve(false);
+        }
+      });
+
+    const activateApp = async (appName: string): Promise<void> => {
+      if (process.platform !== 'darwin') return;
+      await launchDetached('osascript', ['-e', `tell application "${appName}" to activate`]);
+    };
+
+    // Editor definitions with CLI and app bundle fallbacks.
+    const EDITORS: { key: string; cli: string; appBin: string; appName: string }[] = [
       {
         key: 'cursor',
         cli: 'cursor',
         appBin: '/Applications/Cursor.app/Contents/Resources/app/bin/cursor',
-        appDir: '/Applications/Cursor.app',
+        appName: 'Cursor',
       },
       {
         key: 'vscode',
         cli: 'code',
         appBin: '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code',
-        appDir: '/Applications/Visual Studio Code.app',
+        appName: 'Visual Studio Code',
       },
     ];
 
-    const tryEditor = (editor: typeof EDITORS[number]): boolean => {
-      // 1) macOS: use the CLI script bundled inside the .app
-      if (process.platform === 'darwin' && existsSync(editor.appBin)) {
-        const child = spawnProc(editor.appBin, [project.path], {
-          detached: true,
-          stdio: 'ignore',
-        });
-        child.unref();
+    const tryEditor = async (editor: typeof EDITORS[number]): Promise<boolean> => {
+      // 1) Prefer the editor CLI from PATH for cross-platform installs.
+      if (await launchDetached(editor.cli, [project.path])) {
+        await activateApp(editor.appName);
         return true;
+      }
+
+      // 2) macOS: use the bundled CLI script inside the .app when available.
+      if (process.platform === 'darwin' && existsSync(editor.appBin)) {
+        if (await launchDetached(editor.appBin, [project.path])) {
+          await activateApp(editor.appName);
+          return true;
+        }
+      }
+
+      // 3) macOS fallback: ask Launch Services to open the folder in the app.
+      if (process.platform === 'darwin') {
+        if (await launchDetached('open', ['-a', editor.appName, project.path])) {
+          await activateApp(editor.appName);
+          return true;
+        }
       }
 
       return false;
@@ -545,12 +729,20 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
       EDITORS; // auto: try cursor first, then vscode
 
     for (const editor of order) {
-      if (tryEditor(editor)) return { success: true, editor: editor.key };
+      if (await tryEditor(editor)) {
+        if (skippedBranchCheckout) {
+          console.warn(`[open-in-editor] Opened ${project.path} without switching to branch "${branch}" because the working tree is dirty.`);
+        }
+        return { success: true, editor: editor.key };
+      }
     }
 
     // No editor found — open folder
-    await shell.openPath(project.path);
-    return { success: true, editor: 'finder' };
+    const result = await openFolder();
+    if (result.success && skippedBranchCheckout) {
+      console.warn(`[open-in-editor] Opened folder ${project.path} without switching to branch "${branch}" because the working tree is dirty.`);
+    }
+    return result;
   });
 
   ipcMain.handle('git:list-branches', (_event, projectId: string) => {
@@ -577,9 +769,23 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     try {
       await gitStageAll(project.path);
       const sha = await gitCommit(project.path, message);
+      const settings = getSettings();
+      let deletedJobIds: string[] = [];
+      let warning: string | undefined;
+
+      if (branch && settings.deleteCompletedJobsOnCommit) {
+        try {
+          deletedJobIds = await cleanupCompletedJobsForBranch(project, branch);
+        } catch (cleanupError: unknown) {
+          warning = cleanupError instanceof Error
+            ? cleanupError.message
+            : 'Completed jobs were not cleared after commit.';
+        }
+      }
+
       // Clear cached commit message for this branch
       if (branch) commitMessageCache.delete(`${projectId}:${branch}`);
-      return { success: true, sha };
+      return { success: true, sha, deletedJobIds, warning };
     } catch (err: unknown) {
       return { success: false, error: err instanceof Error ? err.message : String(err) };
     }
@@ -652,6 +858,7 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
         const snapshot = await captureSnapshot(project.path, job.id, 0, 'Original');
         if (snapshot) job.gitSnapshots = [snapshot];
       }
+      stepHistoryTracker.startStep(job.id, getStepLabel(0), 0, job.gitSnapshots?.length ? 0 : undefined);
     }
 
     saveJob(job);
@@ -686,6 +893,7 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
 
   ipcMain.handle('jobs:cancel', (_event, jobId: string) => {
     sessionManager.kill(jobId);
+    stepHistoryTracker.discardStep(jobId);
     const updated = updateJob(jobId, {
       status: 'error',
       error: 'Cancelled by user',
@@ -697,21 +905,11 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
 
   ipcMain.handle('jobs:delete', async (_event, jobId: string) => {
     sessionManager.kill(jobId);
+    stepHistoryTracker.discardStep(jobId);
     const job = getJob(jobId);
     if (job?.gitSnapshots?.length) {
       const project = getProjects().find(p => p.id === job.projectId);
       if (project) {
-        // Guard: refuse if another job on the same project is currently running
-        const allJobs = getJobs();
-        const runningOnSameProject = allJobs.some(
-          j => j.id !== jobId && j.projectId === job.projectId && (j.status === 'running' || j.status === 'waiting-input')
-        );
-        if (runningOnSameProject) {
-          throw new Error('Cannot delete while another job on this project is running');
-        }
-
-        // Rollback to original state before cleanup
-        await restoreSnapshot(project.path, job.gitSnapshots[0]);
         await cleanupAllSnapshots(project.path, job.gitSnapshots);
       }
     }
@@ -723,6 +921,7 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     if (!job) throw new Error('Job not found');
 
     sessionManager.kill(jobId);
+    stepHistoryTracker.discardStep(jobId);
 
     const phase = job.column === 'development' ? 'dev' : 'plan';
     const now = new Date().toISOString();
@@ -760,6 +959,14 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     });
 
     if (updated) {
+      if (phase === 'dev') {
+        stepHistoryTracker.startStep(
+          jobId,
+          getStepLabel((job.stepSnapshots || []).length),
+          (job.stepSnapshots || []).length,
+          job.gitSnapshots ? (job.stepSnapshots || []).length : undefined,
+        );
+      }
       sendToRenderer(getWindow, 'job:status-changed', updated);
       await startClaudeSession(updated, getWindow, batchedSender, phase);
     }
@@ -871,6 +1078,12 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     });
 
     if (updated) {
+      stepHistoryTracker.startStep(
+        jobId,
+        getStepLabel((job.stepSnapshots || []).length),
+        (job.stepSnapshots || []).length,
+        snapshots.length > 0 ? snapshots.length - 1 : undefined,
+      );
       sendToRenderer(getWindow, 'job:status-changed', updated);
 
       // Generate title for the follow-up in background, with job context
@@ -963,6 +1176,12 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     });
 
     if (updated) {
+      stepHistoryTracker.startStep(
+        jobId,
+        getStepLabel((job.stepSnapshots || []).length),
+        (job.stepSnapshots || []).length,
+        snapshots.length > 0 ? 0 : undefined,
+      );
       sendToRenderer(getWindow, 'job:status-changed', updated);
       await startClaudeSession(updated, getWindow, batchedSender, 'dev', job.sessionId);
     }
@@ -971,6 +1190,10 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
   ipcMain.handle('jobs:get-diff', async (_event, jobId: string) => {
     const job = getJob(jobId);
     if (!job) throw new Error('Job not found');
+
+    if ((job.stepSnapshots?.length ?? 0) > 0) {
+      return buildStoredDiff(job.stepSnapshots);
+    }
 
     // Return stored diff if available from a previously resolved job.
     if (job.diffText != null) return job.diffText;
@@ -1013,9 +1236,10 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     if (job.status !== 'completed') throw new Error('Job is not completed');
 
     const snapshots = job.gitSnapshots || [];
+    const stepSnapshots = job.stepSnapshots || [];
 
-    // Non-git projects (no snapshots): just mark as rejected without rollback
-    if (snapshots.length === 0) {
+    // Non-git or legacy jobs without stored snapshots: just mark as rejected without rollback
+    if (stepSnapshots.length === 0 && snapshots.length === 0) {
       const updated = updateJob(jobId, {
         status: 'rejected',
         rejectedAt: new Date().toISOString(),
@@ -1028,10 +1252,10 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
 
     // Default to first snapshot (original state) if no index specified
     const targetIndex = snapshotIndex ?? 0;
-    if (targetIndex < 0 || targetIndex >= snapshots.length) {
+    const maxRollbackIndex = stepSnapshots.length > 0 ? stepSnapshots.length - 1 : snapshots.length - 1;
+    if (targetIndex < 0 || targetIndex > maxRollbackIndex) {
       throw new Error('Invalid snapshot index');
     }
-    const targetSnapshot = snapshots[targetIndex];
 
     const project = getProjects().find(p => p.id === job.projectId);
     if (!project) throw new Error('Project not found');
@@ -1045,17 +1269,26 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
       throw new Error('Cannot reject while another job on this project is running');
     }
 
-    // Capture diff from original before restoring
-    const diffText = await getDiff(project.path, snapshots[0]);
+    const targetLabel = snapshots[targetIndex]?.label || (targetIndex === 0 ? 'Original' : getStepLabel(targetIndex));
+    const latestAppliedSeq = getLatestProjectAppliedSeq(allJobs, job.projectId);
+    const canUseGitFastPath =
+      snapshots.length > targetIndex &&
+      (stepSnapshots.length === 0 || stepSnapshots[stepSnapshots.length - 1]?.appliedSeq === latestAppliedSeq);
 
-    await restoreSnapshot(project.path, targetSnapshot);
-    await cleanupAllSnapshots(project.path, snapshots);
+    if (canUseGitFastPath && snapshots.length > targetIndex) {
+      await restoreSnapshot(project.path, snapshots[targetIndex]);
+    } else if (stepSnapshots.length > 0) {
+      await rollbackWithModel(job, project.path, targetIndex, targetLabel);
+    }
+
+    if (snapshots.length > 0) {
+      await cleanupAllSnapshots(project.path, snapshots);
+    }
 
     const updated = updateJob(jobId, {
       status: 'rejected',
       rejectedAt: new Date().toISOString(),
       gitSnapshots: undefined,
-      diffText,
     });
     if (updated) {
       sendToRenderer(getWindow, 'job:status-changed', updated);

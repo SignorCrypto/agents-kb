@@ -113,11 +113,20 @@ export function JobDetailPanel() {
     }
   };
 
+  const handleOpenProject = async () => {
+    if (!project) return;
+    const result = await api.projectsOpenInEditor(project.id, job.branch);
+    if (!result.success) {
+      window.alert(result.error || 'Failed to open project in editor.');
+    }
+  };
+
   const hasPlan = !!job.planText && !job.planText.trim().startsWith('{');
   const isDone = job.status === 'completed' || job.status === 'accepted' || job.status === 'rejected';
   const hasSummary = !!job.summaryText && isDone;
   const hasSnapshots = (job.gitSnapshots?.length ?? 0) > 0;
-  const hasDiff = isDone && (hasSnapshots || !!job.diffText);
+  const hasStepSnapshots = (job.stepSnapshots?.length ?? 0) > 0;
+  const hasDiff = isDone && (hasStepSnapshots || hasSnapshots || !!job.diffText);
   const canDelete = job.status !== 'running' && job.status !== 'waiting-input';
 
   return (
@@ -129,7 +138,7 @@ export function JobDetailPanel() {
           <div className="flex items-center gap-1.5 text-[10px] text-content-tertiary uppercase tracking-wider min-w-0">
             {project ? (
               <button
-                onClick={() => api.projectsOpenInEditor(project.id, job.branch)}
+                onClick={() => { void handleOpenProject(); }}
                 className="group/open flex items-center gap-1.5 hover:text-content-secondary transition-colors rounded -ml-1 px-1 py-0.5"
                 title={`Open ${project.isGitRepo ? 'in editor' : 'folder'}${job.branch ? ` on ${job.branch}` : ''}`}
               >

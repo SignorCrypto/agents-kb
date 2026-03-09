@@ -4,8 +4,8 @@ import { useKanbanStore } from '../hooks/useKanbanStore';
 import { useElectronAPI } from '../hooks/useElectronAPI';
 import { KbdRaw } from './Kbd';
 import { SegmentedPicker } from './SegmentedPicker';
-import type { AppSettings, ShortcutBinding, ThemeMode, PromptConfig, PreferredEditor } from '../types/index';
-import { DEFAULT_SETTINGS, MODEL_CATALOG, EFFORT_CATALOG, DEFAULT_PROMPT_CONFIGS } from '../types/index';
+import type { AppSettings, ShortcutBinding, ThemeMode, PreferredEditor } from '../types/index';
+import { DEFAULT_SETTINGS, MODEL_CATALOG, EFFORT_CATALOG } from '../types/index';
 
 const isMac =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
@@ -189,6 +189,43 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 
           <div className="border-t border-chrome-subtle/40" />
 
+          <div>
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-content-tertiary">
+              Git
+            </span>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-[13px] text-content-primary">Delete completed jobs on commit</div>
+              <div className="text-[11px] text-content-tertiary mt-0.5">
+                Remove completed jobs for the same project and branch after commit
+              </div>
+            </div>
+            <Toggle
+              checked={local.deleteCompletedJobsOnCommit}
+              onChange={() => save({ ...local, deleteCompletedJobsOnCommit: !local.deleteCompletedJobsOnCommit })}
+            />
+          </div>
+
+          <CommitPromptEditor
+            value={local.promptConfigs.commit.prompt}
+            onChange={(prompt) => {
+              save({
+                ...local,
+                promptConfigs: {
+                  ...local.promptConfigs,
+                  commit: {
+                    ...local.promptConfigs.commit,
+                    prompt,
+                  },
+                },
+              });
+            }}
+          />
+
+          <div className="border-t border-chrome-subtle/40" />
+
           {/* Claude section */}
           <div>
             <span className="text-[10px] font-semibold uppercase tracking-wider text-content-tertiary">
@@ -280,28 +317,6 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 
           <div className="border-t border-chrome-subtle/40" />
 
-          {/* Prompts section */}
-          <div>
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-content-tertiary">
-              Prompts
-            </span>
-          </div>
-
-          {Object.values(local.promptConfigs).map((config) => (
-            <PromptConfigEditor
-              key={config.id}
-              config={config}
-              onChange={(updated) => {
-                save({
-                  ...local,
-                  promptConfigs: { ...local.promptConfigs, [updated.id]: updated },
-                });
-              }}
-            />
-          ))}
-
-          <div className="border-t border-chrome-subtle/40" />
-
           {/* Reset */}
           <div className="pt-1">
             <button
@@ -341,47 +356,27 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: () => void 
 
 /* ─── Prompt Config Editor ─── */
 
-function PromptConfigEditor({
-  config,
+function CommitPromptEditor({
+  value,
   onChange,
 }: {
-  config: PromptConfig;
-  onChange: (updated: PromptConfig) => void;
+  value: string;
+  onChange: (prompt: string) => void;
 }) {
   return (
-    <div className="space-y-2.5">
+    <div className="space-y-2">
       <div>
-        <div className="text-[13px] text-content-primary">{config.label}</div>
+        <div className="text-[13px] text-content-primary">Commit message prompt</div>
+        <div className="text-[11px] text-content-tertiary mt-0.5">
+          Used to generate the suggested commit message for git branches
+        </div>
       </div>
       <textarea
-        value={config.prompt}
-        onChange={(e) => onChange({ ...config, prompt: e.target.value })}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
         rows={3}
         className="w-full px-3 py-2 text-xs rounded-lg border border-chrome bg-surface-elevated focus:outline-none focus:ring-2 focus:ring-focus-ring/40 resize-none font-mono"
       />
-      {config.suffix && (
-        <div className="text-[10px] text-content-tertiary -mt-1">
-          Appended automatically: <span className="italic">{config.suffix.trim()}</span>
-        </div>
-      )}
-      <div className="flex items-center gap-4">
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] text-content-secondary">Model</span>
-          <SegmentedPicker
-            options={MODEL_CATALOG}
-            value={config.model}
-            onChange={(model) => onChange({ ...config, model })}
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] text-content-secondary">Effort</span>
-          <SegmentedPicker
-            options={EFFORT_CATALOG}
-            value={config.effort}
-            onChange={(effort) => onChange({ ...config, effort })}
-          />
-        </div>
-      </div>
     </div>
   );
 }

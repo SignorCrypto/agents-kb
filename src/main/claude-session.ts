@@ -419,6 +419,18 @@ export class ClaudeSession extends EventEmitter {
       }
 
       case 'content_block_stop': {
+        if (this.currentToolName && this.currentToolBuffer) {
+          try {
+            const input = JSON.parse(this.currentToolBuffer) as Record<string, unknown>;
+            this.emit('tool-call', {
+              name: this.currentToolName,
+              input,
+            });
+          } catch {
+            // Ignore incomplete tool JSON
+          }
+        }
+
         // Check if Claude is asking a question via AskUserQuestion tool
         if (this.isAskingQuestion && this.currentToolBuffer) {
           try {

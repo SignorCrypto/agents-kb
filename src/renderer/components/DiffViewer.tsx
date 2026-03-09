@@ -6,6 +6,7 @@ interface DiffFile {
   additions: number;
   deletions: number;
   hunks: DiffHunk[];
+  note?: string;
 }
 
 interface DiffHunk {
@@ -37,6 +38,7 @@ function parseDiff(raw: string): DiffFile[] {
     let currentHunk: DiffHunk | null = null;
     let oldLine = 0;
     let newLine = 0;
+    let note: string | undefined;
 
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i];
@@ -58,7 +60,10 @@ function parseDiff(raw: string): DiffFile[] {
           line.startsWith('new file') || line.startsWith('deleted file') ||
           line.startsWith('old mode') || line.startsWith('new mode') ||
           line.startsWith('similarity') || line.startsWith('rename') ||
-          line.startsWith('Binary')) continue;
+          line.startsWith('Binary')) {
+        if (line.startsWith('Binary')) note = 'Binary file changed';
+        continue;
+      }
       if (line === '\\ No newline at end of file') continue;
 
       if (line.startsWith('+')) {
@@ -76,8 +81,8 @@ function parseDiff(raw: string): DiffFile[] {
       }
     }
 
-    if (hunks.length > 0) {
-      files.push({ path: filePath, additions, deletions, hunks });
+    if (hunks.length > 0 || note) {
+      files.push({ path: filePath, additions, deletions, hunks, note });
     }
   }
 
@@ -142,6 +147,11 @@ function FileSection({ file }: { file: DiffFile }) {
       {/* Diff lines */}
       {!collapsed && (
         <div className="overflow-x-auto">
+          {file.note && file.hunks.length === 0 && (
+            <div className="px-3 py-2 text-[11px] text-content-tertiary border-t border-chrome-subtle/20 bg-surface-tertiary/20">
+              {file.note}
+            </div>
+          )}
           {file.hunks.map((hunk, hi) => (
             <div key={hi}>
               {/* Hunk header */}

@@ -53,7 +53,7 @@ export interface PromptConfig {
   effort: EffortLevel;
 }
 
-export const PROMPT_IDS = { COMMIT: 'commit', TITLE: 'title' } as const;
+export const PROMPT_IDS = { COMMIT: 'commit', TITLE: 'title', ROLLBACK: 'rollback' } as const;
 export type PromptId = (typeof PROMPT_IDS)[keyof typeof PROMPT_IDS];
 
 export interface ShortcutBinding {
@@ -78,6 +78,7 @@ export interface AppSettings {
   showModelEffortInNewJob: boolean;
   preferredEditor: PreferredEditor;
   notificationsEnabled: boolean;
+  deleteCompletedJobsOnCommit: boolean;
 }
 
 export const DEFAULT_SHORTCUTS: ShortcutBinding[] = [
@@ -94,10 +95,13 @@ export const COMMIT_PROMPT_SUFFIX = " Output ONLY the commit message, nothing el
 
 export const DEFAULT_TITLE_PROMPT =
   'Generate a very short task title (3-8 words) for this task. Output ONLY the title, no quotes, no formatting, no punctuation at the end.';
+export const DEFAULT_ROLLBACK_PROMPT =
+  'Revert the requested Agent Kanban job changes by restoring the listed files to the provided target contents. Preserve unrelated newer changes whenever possible. If you cannot do this safely, explain why and make no changes.';
 
 export const DEFAULT_PROMPT_CONFIGS: Record<PromptId, PromptConfig> = {
   commit: { id: 'commit', label: 'Commit Message', prompt: DEFAULT_COMMIT_PROMPT, suffix: COMMIT_PROMPT_SUFFIX, model: 'haiku', effort: 'low' },
   title:  { id: 'title',  label: 'Job Title',      prompt: DEFAULT_TITLE_PROMPT,  model: 'haiku', effort: 'low' },
+  rollback: { id: 'rollback', label: 'Rollback', prompt: DEFAULT_ROLLBACK_PROMPT, model: 'sonnet', effort: 'medium' },
 };
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -111,6 +115,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   showModelEffortInNewJob: false,
   preferredEditor: "auto",
   notificationsEnabled: true,
+  deleteCompletedJobsOnCommit: false,
 };
 
 /* ─── Kanban ─── */
@@ -124,6 +129,32 @@ export interface GitSnapshot {
   tempCommitSha?: string;
   refName: string;
   label: string;
+}
+
+export type JobFileSnapshotKind = 'text' | 'binary' | 'created' | 'deleted';
+
+export interface JobFileSnapshot {
+  path: string;
+  kind: JobFileSnapshotKind;
+  beforeExists: boolean;
+  afterExists: boolean;
+  beforeIsBinary: boolean;
+  afterIsBinary: boolean;
+  beforeContent?: string;
+  afterContent?: string;
+  beforeHash?: string;
+  afterHash?: string;
+}
+
+export interface JobStepSnapshot {
+  id: string;
+  label: string;
+  order: number;
+  startedAt: string;
+  completedAt: string;
+  appliedSeq: number;
+  gitSnapshotIndex?: number;
+  files: JobFileSnapshot[];
 }
 
 export interface Project {
@@ -195,6 +226,7 @@ export interface Job {
   planningElapsedMs?: number;
   developmentElapsedMs?: number;
   gitSnapshots?: GitSnapshot[];
+  stepSnapshots?: JobStepSnapshot[];
   diffText?: string;
   acceptedAt?: string;
   rejectedAt?: string;

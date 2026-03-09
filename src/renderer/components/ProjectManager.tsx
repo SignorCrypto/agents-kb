@@ -67,6 +67,13 @@ function ProjectDetailDialog({
 
   const stableOnClose = useCallback(() => onClose(), [onClose]);
 
+  const handleOpenInEditor = useCallback(async () => {
+    const result = await api.projectsOpenInEditor(project.id);
+    if (!result.success) {
+      window.alert(result.error || 'Failed to open project in editor.');
+    }
+  }, [api, project.id]);
+
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') stableOnClose();
@@ -247,7 +254,7 @@ function ProjectDetailDialog({
             {/* Footer actions */}
             <div className="border-t border-chrome-subtle/70 px-4 py-2.5 mt-auto shrink-0 space-y-2">
               <button
-                onClick={() => api.projectsOpenInEditor(project.id)}
+                onClick={() => { void handleOpenInEditor(); }}
                 className="flex items-center gap-1.5 text-[11px] text-content-tertiary hover:text-content-secondary transition-colors"
               >
                 <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
@@ -307,8 +314,10 @@ function ProjectDetailDialog({
 export function ProjectManager() {
   const projects = useKanbanStore((s) => s.projects);
   const jobs = useKanbanStore((s) => s.jobs);
+  const settings = useKanbanStore((s) => s.settings);
   const addProject = useKanbanStore((s) => s.addProject);
   const removeProject = useKanbanStore((s) => s.removeProject);
+  const removeJob = useKanbanStore((s) => s.removeJob);
   const renameProject = useKanbanStore((s) => s.renameProject);
   const reorderProjects = useKanbanStore((s) => s.reorderProjects);
   const selectedProjectId = useKanbanStore((s) => s.selectedProjectId);
@@ -328,6 +337,7 @@ export function ProjectManager() {
   const [commitError, setCommitError] = useState<string | null>(null);
   const [commitPhase, setCommitPhase] = useState<'compose' | 'push'>('compose');
   const [generatingMessage, setGeneratingMessage] = useState(false);
+  const [clearedCompletedCount, setClearedCompletedCount] = useState(0);
 
   // Fetch branch statuses for all projects
   useEffect(() => {
@@ -372,6 +382,7 @@ export function ProjectManager() {
     setCommitMessage('');
     setCommitError(null);
     setCommitPhase('compose');
+    setClearedCompletedCount(0);
     setGeneratingMessage(true);
     try {
       const msg = await api.gitGenerateCommitMessage(projectId, branch);
@@ -393,6 +404,11 @@ export function ProjectManager() {
       setCommitLoading(false);
       return;
     }
+    for (const jobId of result.deletedJobIds || []) {
+      removeJob(jobId);
+    }
+    setClearedCompletedCount(result.deletedJobIds?.length || 0);
+    setCommitError(result.warning || null);
 
     setCommitLoading(false);
 
@@ -410,6 +426,9 @@ export function ProjectManager() {
     if (branchAfter && branchAfter.ahead > 0) {
       setCommitPhase('push');
     } else {
+      if (result.warning) {
+        window.alert(`Commit succeeded, but completed jobs were not fully cleared.\n\n${result.warning}`);
+      }
       setCommitDialog(null);
     }
   };
@@ -784,6 +803,11 @@ export function ProjectManager() {
                 <p className="text-xs text-content-secondary mt-1">
                   Branch <span className="font-mono font-medium text-content-primary">{commitDialog.branch}</span>
                 </p>
+                {settings.deleteCompletedJobsOnCommit && (
+                  <div className="mt-3 rounded-lg border border-chrome-subtle/70 bg-surface-tertiary/25 px-2.5 py-2 text-[11px] leading-relaxed text-content-secondary">
+                    Completed jobs on this project branch will be removed after a successful commit.
+                  </div>
+                )}
                 <div className="mt-3">
                   {generatingMessage ? (
                     <div className="flex items-center gap-2 py-3 text-xs text-content-tertiary">
@@ -844,6 +868,11 @@ export function ProjectManager() {
                 <p className="text-xs text-content-secondary mt-2">
                   Push <span className="font-mono font-medium text-content-primary">{commitDialog.branch}</span> to origin?
                 </p>
+                {settings.deleteCompletedJobsOnCommit && clearedCompletedCount > 0 && (
+                  <p className="text-xs text-content-secondary mt-2 rounded-lg bg-surface-tertiary/30 px-2.5 py-2">
+                    Cleared {clearedCompletedCount} completed job{clearedCompletedCount === 1 ? '' : 's'} from this branch.
+                  </p>
+                )}
                 {commitError && (
                   <p className="text-xs text-status-error mt-2 bg-status-error/10 rounded px-2 py-1.5 break-words">
                     {commitError}
