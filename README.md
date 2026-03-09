@@ -1,70 +1,35 @@
 # Agent Kanban
 
-A desktop application for managing Claude Code terminal sessions as a visual Kanban board. Jobs flow through **Planning → Development → Done** columns, letting you orchestrate multiple AI coding sessions from a single interface.
+A desktop app for using coding agents through a Kanban-style workspace.
 
-## Features
+Agent Kanban does not build or provide the coding agents themselves. It is a different way to visualize terminal sessions, organize work by project, and manage jobs through **Planning → Development → Done**.
 
-- **Kanban workflow** — Create jobs and watch them progress through planning, development, and completion stages
-- **Claude Code integration** — Spawns Claude CLI sessions via `node-pty` with streaming JSON output
-- **Project management** — Register directories as projects and manage jobs per project
-- **Real-time streaming logs** — View live output from each Claude session
-- **Light & dark themes** — System-aware theming with semantic color tokens
-- **Persistent state** — Jobs and projects saved locally via `electron-store`
+## Important
 
-## Prerequisites
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) is required to use the app
+- Claude Code is developed separately and is not built by us
+- Agent Kanban is a companion interface for coding agents, not a replacement for them
 
-- [Node.js](https://nodejs.org/) (LTS recommended)
-- [pnpm](https://pnpm.io/) v8.7.5+
-- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed and authenticated
+## What You Get
+
+- A desktop GUI for terminal-based coding agent sessions
+- A Kanban workflow for moving jobs through planning, development, and done
+- Better project organization for agent-driven work
+- Live terminal visibility inside the app
+- Saved projects and jobs between sessions
+- Light and dark themes
+
+## Requirements
+
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed on your machine
+- Claude Code authenticated and ready to use before opening Agent Kanban
 
 ## Getting Started
 
-```bash
-# Install dependencies
-pnpm install
-
-# Start in development mode (with HMR)
-pnpm start
-```
-
-## Scripts
-
-| Command            | Description                     |
-| ------------------ | ------------------------------- |
-| `pnpm start`       | Run in dev mode with hot reload |
-| `pnpm run package` | Package the app for distribution |
-| `pnpm run make`    | Build distributable (DMG/ZIP)   |
-
-## Project Structure
-
-```
-src/
-├── main/           # Electron main process
-│   ├── main.ts             # App entry point & window creation
-│   ├── session-manager.ts  # Manages Claude CLI sessions
-│   ├── claude-session.ts   # Individual session wrapper (node-pty)
-│   ├── ipc-handlers.ts     # IPC request/response handlers
-│   ├── store.ts            # Persistence via electron-store
-│   └── notifications.ts    # System notifications
-├── preload/
-│   └── preload.ts          # Context bridge (window.electronAPI)
-├── renderer/       # React UI
-│   ├── App.tsx             # Root component
-│   ├── components/         # KanbanBoard, JobCard, JobDetailPanel, etc.
-│   ├── hooks/              # Custom React hooks
-│   ├── store/              # Zustand state management
-│   ├── types/              # Re-exported shared types
-│   └── utils/              # Utility functions
-└── shared/
-    └── types.ts            # Types shared between main & renderer
-```
-
-## Tech Stack
-
-- **Electron 34** + Electron Forge + Vite
-- **React 19** + TypeScript + Zustand
-- **Tailwind CSS 3** with CSS custom properties for theming
-- **node-pty** for terminal session management
+1. Install and authenticate [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
+2. Download and open Agent Kanban.
+3. Add your project folder.
+4. Create jobs and manage your agent sessions from the Kanban board.
 
 ## License
 
