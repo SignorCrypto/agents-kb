@@ -154,7 +154,7 @@ async function startDevelopmentPhase(
 
 async function cleanupCompletedJobsForBranch(project: Project, branch: string): Promise<string[]> {
   const completedJobs = getJobs().filter(
-    (job) => job.projectId === project.id && job.branch === branch && job.status === 'completed',
+    (job) => job.projectId === project.id && job.branch === branch && (job.status === 'completed' || job.status === 'rejected'),
   );
 
   for (const job of completedJobs) {
