@@ -1027,6 +1027,13 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     return setProjectColor(id, color);
   });
 
+  ipcMain.handle('projects:open-folder', async (_event, projectId: string) => {
+    const project = getProjects().find(p => p.id === projectId);
+    if (!project) return { success: false, error: 'Project not found' };
+    const error = await shell.openPath(project.path);
+    return error ? { success: false, error } : { success: true };
+  });
+
   ipcMain.handle('projects:open-in-editor', async (_event, projectId: string, branch?: string) => {
     const project = getProjects().find(p => p.id === projectId);
     if (!project) return { success: false, error: 'Project not found' };

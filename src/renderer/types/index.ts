@@ -13,6 +13,7 @@ export interface ElectronAPI {
   projectsSetDefaultBranch: (id: string, branch: string | null) => Promise<Project | undefined>;
   projectsSetColor: (id: string, color: string | null) => Promise<Project | undefined>;
   projectsOpenInEditor: (id: string, branch?: string) => Promise<{ success: boolean; editor?: string; error?: string }>;
+  projectsOpenFolder: (id: string) => Promise<{ success: boolean; error?: string }>;
 
   // Git
   gitListBranches: (projectId: string) => Promise<{ branches: string[]; current: string } | null>;

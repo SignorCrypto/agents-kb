@@ -48,6 +48,7 @@ function ProjectDetailDialog({
   const [name, setName] = useState(project.name);
   const [isEditing, setIsEditing] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [copiedPath, setCopiedPath] = useState(false);
   const [activeTab, setActiveTab] = useState<DetailTab>('details');
   const preferredEditor = useKanbanStore((s) => s.settings.preferredEditor ?? 'auto');
   const [branches, setBranches] = useState<string[]>([]);
@@ -74,6 +75,13 @@ function ProjectDetailDialog({
     const result = await api.projectsOpenInEditor(project.id);
     if (!result.success) {
       window.alert(result.error || 'Failed to open project in editor.');
+    }
+  }, [api, project.id]);
+
+  const handleOpenFolder = useCallback(async () => {
+    const result = await api.projectsOpenFolder(project.id);
+    if (!result.success) {
+      window.alert(result.error || 'Failed to open folder.');
     }
   }, [api, project.id]);
 
@@ -196,10 +204,67 @@ function ProjectDetailDialog({
             {/* Details tab content */}
             <div className="px-4 py-4 space-y-3">
               {/* Path */}
-              <div>
-                <span className="text-[10px] uppercase tracking-wider text-content-tertiary font-medium">Path</span>
-                <p className="text-xs text-content-secondary mt-0.5 break-all leading-relaxed">{project.path}</p>
+              <div className="group/path">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] uppercase tracking-wider text-content-tertiary font-medium">Path</span>
+                  <div className="flex items-center gap-1 opacity-0 group-hover/path:opacity-100 transition-opacity">
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(project.path);
+                        setCopiedPath(true);
+                        setTimeout(() => setCopiedPath(false), 1500);
+                      }}
+                      className="p-0.5 rounded text-content-tertiary hover:text-content-secondary hover:bg-surface-tertiary/50 transition-colors"
+                      title="Copy path"
+                      aria-label="Copy path"
+                    >
+                      {copiedPath ? (
+                        <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M3.5 8.5l3 3 6-7" />
+                        </svg>
+                      ) : (
+                        <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="5" y="5" width="9" height="9" rx="1" />
+                          <path d="M11 5V3a1 1 0 00-1-1H3a1 1 0 00-1 1v7a1 1 0 001 1h2" />
+                        </svg>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => { void handleOpenFolder(); }}
+                      className="p-0.5 rounded text-content-tertiary hover:text-content-secondary hover:bg-surface-tertiary/50 transition-colors"
+                      title="Reveal in Finder"
+                      aria-label="Reveal in Finder"
+                    >
+                      <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 9v4a1 1 0 01-1 1H3a1 1 0 01-1-1V5a1 1 0 011-1h4" />
+                        <path d="M9 2h5v5" />
+                        <path d="M6 10L14 2" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+                <p className="text-xs text-content-secondary mt-0.5 break-all leading-relaxed text-left">{project.path}</p>
               </div>
+
+              {/* Open in IDE — git repos only */}
+              {project.isGitRepo !== false && (
+                <button
+                  onClick={() => { void handleOpenInEditor(); }}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg border border-chrome-subtle/70 bg-surface-tertiary/25 text-[11px] font-medium text-content-secondary hover:bg-surface-tertiary/60 hover:border-chrome/60 hover:text-content-primary transition-all duration-150"
+                >
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M9 2H4a1 1 0 00-1 1v10a1 1 0 001 1h8a1 1 0 001-1V6l-4-4z" />
+                    <path d="M9 2v4h4" />
+                    <path d="M7 9l-1.5 1.5L7 12" />
+                    <path d="M10 9l1.5 1.5L10 12" />
+                  </svg>
+                  {preferredEditor === 'cursor'
+                    ? 'Open in Cursor'
+                    : preferredEditor === 'vscode'
+                      ? 'Open in VS Code'
+                      : 'Open in Editor'}
+                </button>
+              )}
 
               {/* Added */}
               <div>
@@ -283,25 +348,7 @@ function ProjectDetailDialog({
             </div>
 
             {/* Footer actions */}
-            <div className="border-t border-chrome-subtle/70 px-4 py-2.5 mt-auto shrink-0 space-y-2">
-              <button
-                onClick={() => { void handleOpenInEditor(); }}
-                className="flex items-center gap-1.5 text-[11px] text-content-tertiary hover:text-content-secondary transition-colors"
-              >
-                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M9 2H4a1 1 0 00-1 1v10a1 1 0 001 1h8a1 1 0 001-1V6l-4-4z" />
-                  <path d="M9 2v4h4" />
-                  <path d="M7 9l-1.5 1.5L7 12" />
-                  <path d="M10 9l1.5 1.5L10 12" />
-                </svg>
-                {!project.isGitRepo
-                  ? 'Open Folder'
-                  : preferredEditor === 'cursor'
-                    ? 'Open in Cursor'
-                    : preferredEditor === 'vscode'
-                      ? 'Open in VS Code'
-                      : 'Open in Editor'}
-              </button>
+            <div className="border-t border-chrome-subtle/70 px-4 py-2.5 mt-auto shrink-0">
               {confirmRemove ? (
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] text-semantic-error">Remove project?</span>

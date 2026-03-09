@@ -11,6 +11,7 @@ const api: ElectronAPI = {
   projectsSetDefaultBranch: (id, branch) => ipcRenderer.invoke('projects:set-default-branch', id, branch),
   projectsSetColor: (id, color) => ipcRenderer.invoke('projects:set-color', id, color),
   projectsOpenInEditor: (id, branch) => ipcRenderer.invoke('projects:open-in-editor', id, branch),
+  projectsOpenFolder: (id) => ipcRenderer.invoke('projects:open-folder', id),
 
   // Git
   gitListBranches: (projectId) => ipcRenderer.invoke('git:list-branches', projectId),
