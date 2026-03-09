@@ -9,11 +9,17 @@ import type { Job, JobFileSnapshot, JobStepSnapshot } from '../shared/types';
 
 const execFileAsync = promisify(execFile);
 
-interface FileState {
+export interface FileState {
   exists: boolean;
   isBinary: boolean;
   content?: string;
   hash?: string;
+}
+
+export interface FileStateDiffEntry {
+  path: string;
+  before: FileState;
+  after: FileState;
 }
 
 interface PendingTrackedFile {
@@ -52,7 +58,7 @@ function isBinaryBuffer(buffer: Buffer): boolean {
   return buffer.includes(0);
 }
 
-async function readFileState(projectPath: string, filePath: string): Promise<FileState> {
+export async function readProjectFileState(projectPath: string, filePath: string): Promise<FileState> {
   const absolutePath = path.isAbsolute(filePath) ? filePath : path.join(projectPath, filePath);
   try {
     const buffer = await fs.promises.readFile(absolutePath);
@@ -79,7 +85,7 @@ function toSnapshotKind(before: FileState, after: FileState): JobFileSnapshot['k
   return 'text';
 }
 
-function fileSnapshotBeforeState(file: JobFileSnapshot): FileState {
+export function fileSnapshotBeforeState(file: JobFileSnapshot): FileState {
   return {
     exists: file.beforeExists,
     isBinary: file.beforeIsBinary,
@@ -88,7 +94,7 @@ function fileSnapshotBeforeState(file: JobFileSnapshot): FileState {
   };
 }
 
-function fileSnapshotAfterState(file: JobFileSnapshot): FileState {
+export function fileSnapshotAfterState(file: JobFileSnapshot): FileState {
   return {
     exists: file.afterExists,
     isBinary: file.afterIsBinary,
@@ -155,7 +161,7 @@ function pathsFromToolInput(input: Record<string, unknown>): string[] {
   return [];
 }
 
-function mergeStatesByPath(stepSnapshots?: JobStepSnapshot[]): Map<string, { before: FileState; after: FileState }> {
+export function mergeStatesByPath(stepSnapshots?: JobStepSnapshot[]): Map<string, { before: FileState; after: FileState }> {
   const merged = new Map<string, { before: FileState; after: FileState }>();
 
   for (const step of sortedSteps(stepSnapshots)) {
@@ -172,6 +178,32 @@ function mergeStatesByPath(stepSnapshots?: JobStepSnapshot[]): Map<string, { bef
   }
 
   return merged;
+}
+
+export function fileStatesEqual(left: FileState, right: FileState): boolean {
+  return (
+    left.exists === right.exists &&
+    left.isBinary === right.isBinary &&
+    left.hash === right.hash
+  );
+}
+
+export async function buildDiffFromEntries(entries: FileStateDiffEntry[]): Promise<string> {
+  const chunks: string[] = [];
+
+  for (const entry of entries) {
+    if (fileStatesEqual(entry.before, entry.after)) continue;
+
+    if (entry.before.isBinary || entry.after.isBinary) {
+      chunks.push(buildBinaryDiff(entry.path, entry.before, entry.after));
+      continue;
+    }
+
+    const diff = await buildTextDiff(entry.path, entry.before, entry.after);
+    if (diff) chunks.push(diff);
+  }
+
+  return chunks.join('\n\n').trim();
 }
 
 export function normalizeToolPath(projectPath: string, filePath: string): string {
@@ -214,7 +246,7 @@ export class JobStepHistoryTracker {
     for (const filePath of filePaths) {
       const normalizedPath = normalizeToolPath(projectPath, filePath);
       if (step.files.has(normalizedPath)) continue;
-      const before = await readFileState(projectPath, normalizedPath);
+      const before = await readProjectFileState(projectPath, normalizedPath);
       step.files.set(normalizedPath, { path: normalizedPath, before });
     }
   }
@@ -226,7 +258,7 @@ export class JobStepHistoryTracker {
 
     const files: JobFileSnapshot[] = [];
     for (const tracked of step.files.values()) {
-      const after = await readFileState(projectPath, tracked.path);
+      const after = await readProjectFileState(projectPath, tracked.path);
       const changed =
         tracked.before.exists !== after.exists ||
         tracked.before.isBinary !== after.isBinary ||
@@ -351,7 +383,7 @@ export async function readCurrentStates(
   const states = new Map<string, FileState>();
   await Promise.all(
     filePaths.map(async (filePath) => {
-      states.set(filePath, await readFileState(projectPath, filePath));
+      states.set(filePath, await readProjectFileState(projectPath, filePath));
     }),
   );
   return states;

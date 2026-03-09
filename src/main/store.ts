@@ -36,7 +36,7 @@ function normalizePersistedJob(job: PersistedJob): Job {
     };
   }
 
-  return job;
+  return job as Job;
 }
 
 // Initialize cache from disk, stripping outputLog/rawMessages (they stay in memory only)

@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
+import { createHash } from 'crypto';
 import {
   getProjects,
   addProject,
@@ -19,20 +20,23 @@ import {
   appendOutput,
   appendRawMessage,
   getOutputLog,
-  getRawMessages,
   getSettings,
   updateSettings,
 } from './store';
 import { sessionManager } from './session-manager';
 import { notifyInputNeeded, notifyJobComplete, notifyJobError } from './notifications';
-import { isGitRepoRoot, captureSnapshot, restoreSnapshot, cleanupAllSnapshots, getDiff, listBranches, checkoutBranch, gitStageAll, gitCommit, getBranchesStatus, gitPush } from './git-snapshot';
+import { isGitRepoRoot, captureSnapshot, restoreSnapshot, cleanupAllSnapshots, getDiff, listBranches, checkoutBranch, gitStageAll, gitCommit, getBranchesStatus, gitPush, listChangedFiles, readHeadFileState } from './git-snapshot';
 import { listProjectFiles } from './file-list';
 import type { Job, OutputEntry, RawMessage, PendingQuestion, AppSettings, Project, ModelChoice, EffortLevel, PromptConfig } from '../shared/types';
 import { DEFAULT_PROMPT_CONFIGS } from '../shared/types';
 import {
   JobStepHistoryTracker,
+  buildDiffFromEntries,
   buildRollbackTargets,
   buildStoredDiff,
+  fileSnapshotAfterState,
+  fileStatesEqual,
+  type FileState,
   getLatestProjectAppliedSeq,
   getNextProjectAppliedSeq,
   normalizeToolPath,
@@ -165,6 +169,7 @@ async function cleanupCompletedJobsForBranch(project: Project, branch: string): 
     deleteJob(job.id);
   }
 
+  invalidateCommitMessageCache(project.id, branch);
   return completedJobs.map((job) => job.id);
 }
 
@@ -227,22 +232,348 @@ class BatchedSender {
   }
 }
 
-// Cache of pre-generated commit messages keyed by "projectId:branch"
-const commitMessageCache = new Map<string, string>();
+interface CommitMessageCacheEntry {
+  fingerprint: string;
+  message: string;
+}
 
-async function generateAndCacheBranchCommitMessage(projectId: string, branch: string) {
-  const project = getProjects().find(p => p.id === projectId);
-  if (!project) return;
-  try {
-    const config = getPromptConfig('commit');
-    const prompt = buildPromptText(config);
-    const message = await runClaudePrint(project.path, prompt, { model: config.model, effort: config.effort });
-    if (message) {
-      commitMessageCache.set(`${projectId}:${branch}`, message);
+interface OrderedCommitJob {
+  job: Job;
+  sortSeq: number;
+  message: string;
+}
+
+interface BranchCommitInputs {
+  fingerprint: string;
+  perJobItems: string[];
+  uncategorizedDiff: string;
+}
+
+const commitMessageCache = new Map<string, CommitMessageCacheEntry>();
+
+function hashText(value: string): string {
+  return createHash('sha1').update(value).digest('hex');
+}
+
+function commitCacheKey(projectId: string, branch: string): string {
+  return `${projectId}:${branch}`;
+}
+
+function invalidateCommitMessageCache(projectId: string, branch?: string): void {
+  if (!branch) return;
+  commitMessageCache.delete(commitCacheKey(projectId, branch));
+}
+
+function sanitizeCommitLine(value: string | undefined | null): string {
+  if (!value) return '';
+  return value
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)[0]
+    ?.replace(/^[-*+]\s+/, '')
+    .replace(/^\d+\.\s+/, '')
+    .replace(/^["'`]+|["'`]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim() || '';
+}
+
+function parseCommitListLines(value: string | undefined | null): string[] {
+  if (!value) return [];
+  return value
+    .split('\n')
+    .map((line) => sanitizeCommitLine(line))
+    .filter(Boolean);
+}
+
+function fallbackCommitSubject(): string {
+  return 'chore: apply completed jobs';
+}
+
+function fallbackCommitItem(): string {
+  return 'chore: update project';
+}
+
+function fallbackExtraCommitItem(): string {
+  return 'chore: update additional branch changes';
+}
+
+function buildPerJobCommitPrompt(config: PromptConfig, diffText: string): string {
+  return [
+    config.prompt,
+    'Summarize ONLY the job diff below as a single concise conventional-commit line.',
+    'Output exactly one line with no bullet prefix, no numbering, and no surrounding quotes.',
+    '',
+    'JOB DIFF:',
+    diffText || '[no diff available]',
+  ].join('\n');
+}
+
+function buildExtraCommitItemsPrompt(config: PromptConfig, diffText: string): string {
+  return [
+    config.prompt,
+    'Summarize ONLY the uncategorized branch changes below.',
+    'Output one or more concise conventional-commit lines, one item per line, with no bullet prefixes, no numbering, and no surrounding quotes.',
+    '',
+    'UNCATEGORIZED DIFF:',
+    diffText,
+  ].join('\n');
+}
+
+function buildCommitSubjectPrompt(config: PromptConfig, items: string[]): string {
+  return [
+    config.prompt,
+    'Generate a single concise conventional-commit subject that covers the combined list below.',
+    'Output exactly one line with no bullet prefix, no numbering, and no surrounding quotes.',
+    '',
+    'COMBINED ITEMS:',
+    ...items.map((item) => `- ${item}`),
+  ].join('\n');
+}
+
+function buildCommitMessage(subject: string, items: string[]): string {
+  const cleanSubject = sanitizeCommitLine(subject) || fallbackCommitSubject();
+  const cleanItems = items.map((item) => sanitizeCommitLine(item)).filter(Boolean);
+  if (cleanItems.length === 0) return cleanSubject;
+  return `${cleanSubject}\n\n${cleanItems.map((item) => `- ${item}`).join('\n')}`;
+}
+
+function extractPathsFromDiffText(diffText?: string): string[] {
+  if (!diffText) return [];
+  const matches = diffText.matchAll(/^diff --git a\/(.+?) b\/(.+)$/gm);
+  const paths = new Set<string>();
+  for (const match of matches) {
+    const candidate = (match[2] || match[1] || '').trim();
+    if (candidate) paths.add(candidate);
+  }
+  return Array.from(paths);
+}
+
+function getJobLatestAppliedSeq(job: Job): number {
+  const sequences = (job.stepSnapshots || []).map((step) => step.appliedSeq);
+  if (sequences.length > 0) return Math.max(...sequences);
+  const completedAt = job.completedAt ? new Date(job.completedAt).getTime() : 0;
+  return completedAt > 0 ? completedAt : Number.MAX_SAFE_INTEGER;
+}
+
+async function getOrderedCompletedJobsForBranch(project: Project, branch: string): Promise<OrderedCommitJob[]> {
+  const jobs = getJobs().filter(
+    (job) => job.projectId === project.id && job.branch === branch && job.status === 'completed',
+  );
+  const resolved: OrderedCommitJob[] = [];
+
+  for (const job of jobs) {
+    let message = sanitizeCommitLine(job.generatedCommitMessage);
+    let diffText = job.diffText?.trim() || '';
+
+    if (!message) {
+      diffText = diffText || await buildStableJobDiff(project.path, job, job.stepSnapshots);
+      try {
+        message = await generateJobCommitMessage(project.path, diffText);
+      } catch {
+        message = fallbackCommitItem();
+      }
+
+      const updated = updateJob(job.id, {
+        diffText: diffText || undefined,
+        generatedCommitMessage: message,
+      });
+      if (updated) {
+        message = sanitizeCommitLine(updated.generatedCommitMessage) || message;
+      }
     }
+
+    resolved.push({
+      job,
+      sortSeq: getJobLatestAppliedSeq(job),
+      message,
+    });
+  }
+
+  return resolved
+    .filter((entry) => Boolean(entry.message))
+    .sort((left, right) => {
+      if (left.sortSeq !== right.sortSeq) return left.sortSeq - right.sortSeq;
+      const leftCompleted = left.job.completedAt ? new Date(left.job.completedAt).getTime() : 0;
+      const rightCompleted = right.job.completedAt ? new Date(right.job.completedAt).getTime() : 0;
+      if (leftCompleted !== rightCompleted) return leftCompleted - rightCompleted;
+      return left.job.createdAt.localeCompare(right.job.createdAt);
+    });
+}
+
+async function buildStableJobDiff(projectPath: string, job: Job, stepSnapshots?: Job['stepSnapshots']): Promise<string> {
+  if ((stepSnapshots?.length ?? 0) > 0) {
+    const stored = await buildStoredDiff(stepSnapshots);
+    if (stored.trim()) return stored;
+  }
+
+  if (job.diffText?.trim()) return job.diffText.trim();
+
+  const snapshots = job.gitSnapshots || [];
+  if (snapshots.length > 0) {
+    const liveDiff = await getDiff(projectPath, snapshots[0]);
+    if (liveDiff.trim()) return liveDiff.trim();
+  }
+
+  return '';
+}
+
+async function generateJobCommitMessage(projectPath: string, diffText: string): Promise<string> {
+  const normalizedDiff = diffText.trim();
+  if (!normalizedDiff) return fallbackCommitItem();
+
+  const config = getPromptConfig('commit');
+  const raw = await runClaudePrint(
+    projectPath,
+    buildPerJobCommitPrompt(config, normalizedDiff),
+    { model: config.model, effort: config.effort },
+  );
+  return sanitizeCommitLine(raw) || fallbackCommitItem();
+}
+
+async function generateExtraCommitItems(projectPath: string, diffText: string): Promise<string[]> {
+  const normalizedDiff = diffText.trim();
+  if (!normalizedDiff) return [];
+
+  const config = getPromptConfig('commit');
+  const raw = await runClaudePrint(
+    projectPath,
+    buildExtraCommitItemsPrompt(config, normalizedDiff),
+    { model: config.model, effort: config.effort },
+  );
+  const lines = parseCommitListLines(raw);
+  return lines.length > 0 ? lines : [fallbackExtraCommitItem()];
+}
+
+async function generateCombinedCommitSubject(projectPath: string, items: string[]): Promise<string> {
+  const cleanItems = items.map((item) => sanitizeCommitLine(item)).filter(Boolean);
+  if (cleanItems.length === 0) return fallbackCommitSubject();
+
+  const config = getPromptConfig('commit');
+  const raw = await runClaudePrint(
+    projectPath,
+    buildCommitSubjectPrompt(config, cleanItems),
+    { model: config.model, effort: config.effort },
+  );
+  return sanitizeCommitLine(raw) || cleanItems[0] || fallbackCommitSubject();
+}
+
+async function buildUncategorizedDiff(project: Project, orderedJobs: OrderedCommitJob[]): Promise<string> {
+  const exactCoveredStates = new Map<string, FileState>();
+  const opaqueCoveredPaths = new Set<string>();
+  const sortedSteps = orderedJobs
+    .flatMap(({ job }) =>
+      (job.stepSnapshots || []).map((step) => ({
+        step,
+        job,
+      })),
+    )
+    .sort((left, right) => {
+      if (left.step.appliedSeq !== right.step.appliedSeq) return left.step.appliedSeq - right.step.appliedSeq;
+      return left.step.completedAt.localeCompare(right.step.completedAt);
+    });
+
+  for (const { step } of sortedSteps) {
+    for (const file of step.files) {
+      exactCoveredStates.set(file.path, fileSnapshotAfterState(file));
+    }
+  }
+
+  for (const { job } of orderedJobs) {
+    if ((job.stepSnapshots?.length ?? 0) > 0) continue;
+    for (const filePath of new Set([...(job.editedFiles || []), ...extractPathsFromDiffText(job.diffText)])) {
+      opaqueCoveredPaths.add(filePath);
+    }
+  }
+
+  const changedFiles = await listChangedFiles(project.path);
+  if (changedFiles.length === 0) return '';
+
+  const currentStates = await readCurrentStates(project.path, changedFiles);
+  const diffEntries: Array<{ path: string; before: FileState; after: FileState }> = [];
+
+  for (const filePath of changedFiles) {
+    const currentState = currentStates.get(filePath) || { exists: false, isBinary: false };
+    const coveredState = exactCoveredStates.get(filePath);
+
+    if (coveredState) {
+      if (!fileStatesEqual(coveredState, currentState)) {
+        diffEntries.push({ path: filePath, before: coveredState, after: currentState });
+      }
+      continue;
+    }
+
+    if (opaqueCoveredPaths.has(filePath)) continue;
+
+    const headState = await readHeadFileState(project.path, filePath);
+    if (!fileStatesEqual(headState, currentState)) {
+      diffEntries.push({ path: filePath, before: headState, after: currentState });
+    }
+  }
+
+  return buildDiffFromEntries(diffEntries);
+}
+
+async function computeBranchCommitInputs(project: Project, branch: string): Promise<BranchCommitInputs> {
+  const orderedJobs = await getOrderedCompletedJobsForBranch(project, branch);
+  const perJobItems = orderedJobs.map((entry) => entry.message);
+  const uncategorizedDiff = await buildUncategorizedDiff(project, orderedJobs);
+  return {
+    perJobItems,
+    uncategorizedDiff,
+    fingerprint: hashText(JSON.stringify({
+      branch,
+      jobs: orderedJobs.map((entry) => ({
+        id: entry.job.id,
+        sortSeq: entry.sortSeq,
+        message: entry.message,
+      })),
+      uncategorizedDiff,
+    })),
+  };
+}
+
+async function computeBranchCommitMessage(project: Project, branch: string, inputs?: BranchCommitInputs): Promise<CommitMessageCacheEntry> {
+  const resolvedInputs = inputs || await computeBranchCommitInputs(project, branch);
+  const extraItems = resolvedInputs.uncategorizedDiff
+    ? await generateExtraCommitItems(project.path, resolvedInputs.uncategorizedDiff)
+    : [];
+  const items = [...resolvedInputs.perJobItems, ...extraItems];
+  const subject = await generateCombinedCommitSubject(project.path, items);
+
+  return {
+    fingerprint: resolvedInputs.fingerprint,
+    message: buildCommitMessage(subject, items),
+  };
+}
+
+async function getOrGenerateBranchCommitMessage(projectId: string, branch: string): Promise<string> {
+  const project = getProjects().find((candidate) => candidate.id === projectId);
+  if (!project) throw new Error('Project not found');
+
+  const inputs = await computeBranchCommitInputs(project, branch);
+  const cacheKey = commitCacheKey(projectId, branch);
+  const cached = commitMessageCache.get(cacheKey);
+  if (cached?.fingerprint === inputs.fingerprint) {
+    return cached.message;
+  }
+
+  const nextEntry = await computeBranchCommitMessage(project, branch, inputs);
+  commitMessageCache.set(cacheKey, nextEntry);
+  return nextEntry.message;
+}
+
+async function generateAndCacheBranchCommitMessage(projectId: string, branch: string): Promise<void> {
+  try {
+    await getOrGenerateBranchCommitMessage(projectId, branch);
   } catch {
     // Best-effort
   }
+}
+
+async function resolveCommitBranch(project: Project, branch?: string): Promise<string | null> {
+  if (branch) return branch;
+  const branches = await listBranches(project.path);
+  return branches?.current || null;
 }
 
 async function startClaudeSession(job: Job, getWindow: WindowGetter, batchedSender: BatchedSender, phase: 'plan' | 'dev', sessionId?: string) {
@@ -381,12 +712,15 @@ async function startClaudeSession(job: Job, getWindow: WindowGetter, batchedSend
       const nextStepSnapshots = completedStep
         ? [...(current.stepSnapshots || []), completedStep]
         : current.stepSnapshots;
+      const diffText = await buildStableJobDiff(project.path, current, nextStepSnapshots);
 
       const updated = updateJob(job.id, {
         column: 'done',
         status: 'completed',
         pendingQuestion: undefined,
         completedAt: new Date().toISOString(),
+        diffText: diffText || undefined,
+        generatedCommitMessage: undefined,
         editedFiles: editedFiles.length > 0 ? editedFiles : undefined,
         stepSnapshots: nextStepSnapshots,
       });
@@ -395,14 +729,25 @@ async function startClaudeSession(job: Job, getWindow: WindowGetter, batchedSend
         sendToRenderer(getWindow, 'job:complete', { jobId: job.id });
         notifyJobComplete(job.id, project.name, job.title || job.prompt, getWindow);
 
-        // Pre-generate branch commit messages for the project commit flow.
-        const completedProject = getProjects().find(p => p.id === job.projectId);
-        if (completedProject && projectIsGitRepo(completedProject)) {
-          (async () => {
-            const branch = job.branch || (await listBranches(completedProject.path))?.current;
-            if (branch) generateAndCacheBranchCommitMessage(job.projectId, branch);
-          })();
-        }
+        void (async () => {
+          try {
+            const commitMessage = await generateJobCommitMessage(project.path, diffText);
+            const refreshed = updateJob(job.id, { generatedCommitMessage: commitMessage });
+            if (refreshed) {
+              sendToRenderer(getWindow, 'job:status-changed', refreshed);
+            }
+          } catch {
+            const refreshed = updateJob(job.id, { generatedCommitMessage: fallbackCommitItem() });
+            if (refreshed) {
+              sendToRenderer(getWindow, 'job:status-changed', refreshed);
+            }
+          } finally {
+            if (updated.branch && projectIsGitRepo(project)) {
+              invalidateCommitMessageCache(updated.projectId, updated.branch);
+              void generateAndCacheBranchCommitMessage(updated.projectId, updated.branch);
+            }
+          }
+        })();
       }
     } else {
       if (current.column === 'planning' && current.status === 'running') {
@@ -810,15 +1155,16 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     const project = getProjects().find(p => p.id === projectId);
     if (!project) return { success: false, error: 'Project not found' };
     try {
+      const targetBranch = await resolveCommitBranch(project, branch);
       await gitStageAll(project.path);
       const sha = await gitCommit(project.path, message);
       const settings = getSettings();
       let deletedJobIds: string[] = [];
       let warning: string | undefined;
 
-      if (branch && settings.deleteCompletedJobsOnCommit) {
+      if (targetBranch && settings.deleteCompletedJobsOnCommit) {
         try {
-          deletedJobIds = await cleanupCompletedJobsForBranch(project, branch);
+          deletedJobIds = await cleanupCompletedJobsForBranch(project, targetBranch);
         } catch (cleanupError: unknown) {
           warning = cleanupError instanceof Error
             ? cleanupError.message
@@ -826,8 +1172,7 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
         }
       }
 
-      // Clear cached commit message for this branch
-      if (branch) commitMessageCache.delete(`${projectId}:${branch}`);
+      invalidateCommitMessageCache(projectId, targetBranch || undefined);
       return { success: true, sha, deletedJobIds, warning };
     } catch (err: unknown) {
       return { success: false, error: err instanceof Error ? err.message : String(err) };
@@ -835,20 +1180,15 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
   });
 
   ipcMain.handle('git:generate-commit-message', async (_event, projectId: string, branch?: string) => {
-    // Return cached message if available
-    if (branch) {
-      const cacheKey = `${projectId}:${branch}`;
-      const cached = commitMessageCache.get(cacheKey);
-      if (cached) {
-        commitMessageCache.delete(cacheKey);
-        return cached;
-      }
-    }
     const project = getProjects().find(p => p.id === projectId);
     if (!project) throw new Error('Project not found');
-    const config = getPromptConfig('commit');
-    const prompt = buildPromptText(config);
-    return runClaudePrint(project.path, prompt, { model: config.model, effort: config.effort });
+    const targetBranch = await resolveCommitBranch(project, branch);
+    if (!targetBranch) {
+      const config = getPromptConfig('commit');
+      const prompt = buildPromptText(config);
+      return runClaudePrint(project.path, prompt, { model: config.model, effort: config.effort });
+    }
+    return getOrGenerateBranchCommitMessage(projectId, targetBranch);
   });
 
   // === Files ===
@@ -950,6 +1290,9 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     sessionManager.kill(jobId);
     stepHistoryTracker.discardStep(jobId);
     const job = getJob(jobId);
+    if (job?.branch) {
+      invalidateCommitMessageCache(job.projectId, job.branch);
+    }
     if (job?.gitSnapshots?.length) {
       const project = getProjects().find(p => p.id === job.projectId);
       if (project) {
@@ -997,11 +1340,17 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
       pendingQuestion: undefined,
       totalPausedMs: 0,
       waitingStartedAt: undefined,
+      completedAt: undefined,
+      diffText: undefined,
+      generatedCommitMessage: undefined,
       ...elapsedUpdate,
       outputLog,
     });
 
     if (updated) {
+      if (job.branch) {
+        invalidateCommitMessageCache(job.projectId, job.branch);
+      }
       if (phase === 'dev') {
         stepHistoryTracker.startStep(
           jobId,
@@ -1115,12 +1464,16 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
       pendingQuestion: undefined,
       error: undefined,
       diffText: undefined,
+      generatedCommitMessage: undefined,
       followUps,
       gitSnapshots: snapshots,
       outputLog,
     });
 
     if (updated) {
+      if (job.branch) {
+        invalidateCommitMessageCache(job.projectId, job.branch);
+      }
       stepHistoryTracker.startStep(
         jobId,
         getStepLabel((job.stepSnapshots || []).length),
@@ -1191,12 +1544,11 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     const job = getJob(jobId);
     if (!job) throw new Error('Job not found');
 
+    if (job.diffText != null) return job.diffText;
+
     if ((job.stepSnapshots?.length ?? 0) > 0) {
       return buildStoredDiff(job.stepSnapshots);
     }
-
-    // Return stored diff if available from a previously resolved job.
-    if (job.diffText != null) return job.diffText;
 
     // Compute live diff from the first (original) snapshot
     const snapshots = job.gitSnapshots || [];
@@ -1245,6 +1597,9 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
         rejectedAt: new Date().toISOString(),
       });
       if (updated) {
+        if (job.branch) {
+          invalidateCommitMessageCache(job.projectId, job.branch);
+        }
         sendToRenderer(getWindow, 'job:status-changed', updated);
       }
       return;
@@ -1291,6 +1646,9 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
       gitSnapshots: undefined,
     });
     if (updated) {
+      if (job.branch) {
+        invalidateCommitMessageCache(job.projectId, job.branch);
+      }
       sendToRenderer(getWindow, 'job:status-changed', updated);
     }
   });

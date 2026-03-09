@@ -1,7 +1,9 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
+import { createHash } from 'crypto';
 import type { GitSnapshot } from '../shared/types';
+import type { FileState } from './job-step-history';
 
 const execFileAsync = promisify(execFile);
 
@@ -10,6 +12,21 @@ const GIT_OPTIONS = { timeout: 15000, env: { ...process.env, FORCE_COLOR: '0' } 
 async function git(projectPath: string, ...args: string[]): Promise<string> {
   const { stdout } = await execFileAsync('git', args, { cwd: projectPath, ...GIT_OPTIONS });
   return stdout.trim();
+}
+
+function hashBuffer(buffer: Buffer): string {
+  return createHash('sha1').update(buffer).digest('hex');
+}
+
+function isBinaryBuffer(buffer: Buffer): boolean {
+  return buffer.includes(0);
+}
+
+function parsePorcelainPath(line: string): string | null {
+  const rawPath = line.slice(3).trim();
+  if (!rawPath) return null;
+  const renameParts = rawPath.split(' -> ');
+  return (renameParts[renameParts.length - 1] || '').trim() || null;
 }
 
 /**
@@ -210,5 +227,54 @@ export async function getDiffBetween(projectPath: string, fromSha: string, toSha
     return diff;
   } catch {
     return '';
+  }
+}
+
+export async function listChangedFiles(projectPath: string): Promise<string[]> {
+  if (!(await isGitRepoRoot(projectPath))) return [];
+
+  try {
+    const status = await git(projectPath, 'status', '--porcelain=v1', '--untracked-files=all');
+    return status
+      .split('\n')
+      .map((line) => line.trimEnd())
+      .filter(Boolean)
+      .map(parsePorcelainPath)
+      .filter((filePath): filePath is string => Boolean(filePath));
+  } catch {
+    return [];
+  }
+}
+
+export async function readHeadFileState(projectPath: string, filePath: string): Promise<FileState> {
+  try {
+    const { stdout } = await execFileAsync(
+      'git',
+      ['show', `HEAD:${filePath}`],
+      { cwd: projectPath, ...GIT_OPTIONS, encoding: 'buffer' as never },
+    );
+    const buffer = Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout);
+    const binary = isBinaryBuffer(buffer);
+    return {
+      exists: true,
+      isBinary: binary,
+      content: binary ? undefined : buffer.toString('utf-8'),
+      hash: hashBuffer(buffer),
+    };
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException & { stderr?: string | Buffer };
+    const stderr = typeof err.stderr === 'string'
+      ? err.stderr
+      : Buffer.isBuffer(err.stderr)
+        ? err.stderr.toString('utf-8')
+        : '';
+    if (
+      stderr.includes('exists on disk, but not in') ||
+      stderr.includes('does not exist in') ||
+      stderr.includes('pathspec')
+    ) {
+      return { exists: false, isBinary: false };
+    }
+    return { exists: false, isBinary: false };
   }
 }
