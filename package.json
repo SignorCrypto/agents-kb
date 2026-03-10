@@ -1,7 +1,7 @@
 {
   "name": "agents-kb",
   "version": "1.0.0",
-  "description": "Kanban board for managing Claude Code terminal sessions",
+  "description": "The Kanban board for terminal-based agents",
   "main": ".vite/build/main.js",
   "scripts": {
     "start": "electron-forge start",
