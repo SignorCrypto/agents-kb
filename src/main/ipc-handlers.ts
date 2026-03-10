@@ -693,6 +693,7 @@ async function startClaudeSession(
     images: job.images,
     model: effectiveModel !== 'default' ? effectiveModel : undefined,
     effort: effectiveEffort !== 'default' ? effectiveEffort : undefined,
+    permissionMode: settings.permissionMode,
   });
 
   session.on('session-id', (sid: string) => {
@@ -882,10 +883,15 @@ function runClaudePrint(projectPath: string, prompt: string, options?: { model?:
   });
 }
 
-function runClaudeEditTask(projectPath: string, prompt: string, options?: { model?: string; effort?: string }): Promise<string> {
+function runClaudeEditTask(projectPath: string, prompt: string, options?: { model?: string; effort?: string; permissionMode?: string }): Promise<string> {
   return new Promise((resolve, reject) => {
     const { spawn } = require('child_process') as typeof import('child_process');
-    const args = ['-p', '--dangerously-skip-permissions'];
+    const args = ['-p'];
+    if (options?.permissionMode === 'default') {
+      args.push('--permission-mode', 'default');
+    } else {
+      args.push('--dangerously-skip-permissions');
+    }
     if (options?.model && options.model !== 'default') {
       args.push('--model', options.model);
     }
@@ -951,7 +957,7 @@ async function rollbackWithModel(job: Job, projectPath: string, targetIndex: num
   const prompt = buildPromptText(config, `\n\n${serializeRollbackContext(rollbackPlan.targets, targetLabel)}`);
 
   try {
-    await runClaudeEditTask(projectPath, prompt, { model: config.model, effort: config.effort });
+    await runClaudeEditTask(projectPath, prompt, { model: config.model, effort: config.effort, permissionMode: getSettings().permissionMode });
     const valid = await validateRollbackTargets(projectPath, rollbackPlan.targets);
     if (!valid) {
       throw new Error('Rollback output did not match the requested target state');

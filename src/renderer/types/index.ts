@@ -1,4 +1,4 @@
-export type { KanbanColumn, JobStatus, Project, OutputEntry, RawMessage, PendingQuestion, FollowUp, Job, GitSnapshot, JobStepSnapshot, JobFileSnapshot, ShortcutBinding, AppSettings, ThemeMode, ModelChoice, EffortLevel, ModelOption, EffortOption, PromptConfig, PromptId, PreferredEditor, ProjectColorId, CliHealthStatus } from '../../shared/types';
+export type { KanbanColumn, JobStatus, Project, OutputEntry, RawMessage, PendingQuestion, FollowUp, Job, GitSnapshot, JobStepSnapshot, JobFileSnapshot, ShortcutBinding, AppSettings, ThemeMode, ModelChoice, EffortLevel, ModelOption, EffortOption, PromptConfig, PromptId, PreferredEditor, PermissionMode, ProjectColorId, CliHealthStatus } from '../../shared/types';
 export { DEFAULT_SETTINGS, DEFAULT_SHORTCUTS, DEFAULT_COMMIT_PROMPT, DEFAULT_PROMPT_CONFIGS, PROMPT_IDS, MODEL_CATALOG, EFFORT_CATALOG, PROJECT_COLORS, getProjectColor } from '../../shared/types';
 import type { Project, Job, OutputEntry, RawMessage, PendingQuestion, AppSettings, ModelChoice, EffortLevel, CliHealthStatus } from '../../shared/types';
 

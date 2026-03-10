@@ -774,10 +774,10 @@ export function ProjectManager() {
                             title={chipTitle}
                             className={`inline-flex items-center gap-0.5 px-1.5 py-px rounded border text-[9px] font-medium transition-colors ${
                               canPush
-                                ? 'border-column-development/20 bg-column-development/6 text-column-development hover:bg-column-development/15 hover:border-column-development/40 cursor-pointer'
+                                ? 'border-column-development/30 bg-column-development/10 text-column-development hover:bg-column-development/20 hover:border-column-development/50 cursor-pointer'
                                 : isActionable
-                                  ? 'border-semantic-warning/20 bg-semantic-warning/6 text-semantic-warning hover:bg-semantic-warning/15 hover:border-semantic-warning/40 cursor-pointer'
-                                  : 'border-semantic-warning/20 bg-semantic-warning/6 text-semantic-warning'
+                                  ? 'border-semantic-warning/30 bg-semantic-warning/10 text-semantic-warning hover:bg-semantic-warning/20 hover:border-semantic-warning/50 cursor-pointer'
+                                  : 'border-semantic-warning/30 bg-semantic-warning/10 text-semantic-warning'
                             }`}
                           >
                             <svg width="8" height="8" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">

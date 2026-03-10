@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { EventEmitter } from 'events';
 import { v4 as uuidv4 } from 'uuid';
-import type { OutputEntry, PendingQuestion, QuestionOption } from '../shared/types';
+import type { OutputEntry, PendingQuestion, QuestionOption, PermissionMode } from '../shared/types';
 
 export type SessionPhase = 'plan' | 'dev';
 
@@ -16,6 +16,7 @@ export interface ClaudeSessionOptions {
   images?: string[];
   model?: string;
   effort?: string;
+  permissionMode?: PermissionMode;
 }
 
 export class ClaudeSession extends EventEmitter {
@@ -61,6 +62,8 @@ export class ClaudeSession extends EventEmitter {
     }
 
     if (this.options.phase === 'plan') {
+      args.push('--permission-mode', 'default');
+    } else if (this.options.permissionMode === 'default') {
       args.push('--permission-mode', 'default');
     } else {
       args.push('--dangerously-skip-permissions');

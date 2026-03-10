@@ -73,6 +73,7 @@ export interface ShortcutBinding {
 }
 
 export type PreferredEditor = 'auto' | 'cursor' | 'vscode';
+export type PermissionMode = 'skip' | 'default';
 
 export interface AppSettings {
   theme: ThemeMode;
@@ -88,6 +89,7 @@ export interface AppSettings {
   preferredEditor: PreferredEditor;
   notificationsEnabled: boolean;
   deleteCompletedJobsOnCommit: boolean;
+  permissionMode: PermissionMode;
 }
 
 export const DEFAULT_SHORTCUTS: ShortcutBinding[] = [
@@ -125,6 +127,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   preferredEditor: "auto",
   notificationsEnabled: true,
   deleteCompletedJobsOnCommit: true,
+  permissionMode: 'default',
 };
 
 /* ─── Kanban ─── */

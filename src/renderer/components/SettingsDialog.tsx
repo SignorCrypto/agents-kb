@@ -4,7 +4,7 @@ import { useKanbanStore } from '../hooks/useKanbanStore';
 import { useElectronAPI } from '../hooks/useElectronAPI';
 import { KbdRaw } from './Kbd';
 import { SegmentedPicker } from './SegmentedPicker';
-import type { AppSettings, ShortcutBinding, ThemeMode, PreferredEditor } from '../types/index';
+import type { AppSettings, ShortcutBinding, ThemeMode, PreferredEditor, PermissionMode } from '../types/index';
 import { DEFAULT_SETTINGS, MODEL_CATALOG, EFFORT_CATALOG } from '../types/index';
 
 const isMac =
@@ -281,6 +281,20 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             <Toggle checked={local.showModelEffortInNewJob} onChange={() => save({ ...local, showModelEffortInNewJob: !local.showModelEffortInNewJob })} />
           </div>
 
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-[13px] text-content-primary">Permission Mode</div>
+              <div className="text-[11px] text-content-tertiary mt-0.5">
+                How Claude handles permissions during development
+              </div>
+            </div>
+            <SegmentedPicker
+              options={PERMISSION_OPTIONS}
+              value={local.permissionMode}
+              onChange={(permissionMode) => save({ ...local, permissionMode })}
+            />
+          </div>
+
           <div className="border-t border-chrome-subtle/40" />
 
           {/* Keyboard Shortcuts */}
@@ -393,6 +407,11 @@ const EDITOR_OPTIONS: { value: PreferredEditor; label: string }[] = [
   { value: 'auto', label: 'Auto' },
   { value: 'cursor', label: 'Cursor' },
   { value: 'vscode', label: 'VS Code' },
+];
+
+const PERMISSION_OPTIONS: { value: PermissionMode; label: string }[] = [
+  { value: 'skip', label: 'Skip All' },
+  { value: 'default', label: 'Default' },
 ];
 
 

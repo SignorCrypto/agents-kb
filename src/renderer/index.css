@@ -5,16 +5,16 @@
 @layer base {
   :root {
     /* Surface */
-    --color-bg-primary: 250 250 249;
-    --color-bg-secondary: 245 245 244;
-    --color-bg-tertiary: 231 229 228;
+    --color-bg-primary: 241 240 238;
+    --color-bg-secondary: 234 232 230;
+    --color-bg-tertiary: 220 217 215;
     --color-bg-elevated: 255 255 255;
     --color-bg-overlay: 0 0 0;
     --color-bg-terminal: 12 10 9;
 
     /* Borders */
-    --color-border-primary: 214 211 209;
-    --color-border-secondary: 231 229 228;
+    --color-border-primary: 207 204 200;
+    --color-border-secondary: 220 217 215;
     --color-border-focus: 120 113 108;
 
     /* Text */
@@ -24,7 +24,7 @@
     --color-text-inverted: 255 255 255;
 
     /* Selection / Active */
-    --color-selected-bg: 231 229 228;
+    --color-selected-bg: 224 221 219;
     --color-selected-border: 120 113 108;
     --color-active-indicator: 87 83 78;
     --color-active-indicator-ping: 120 113 108;
@@ -38,20 +38,20 @@
     --color-btn-secondary-hover: 68 64 60;
 
     /* Column indicators */
-    --color-column-planning: 251 146 60;
-    --color-column-development: 87 83 78;
+    --color-column-planning: 234 88 12;
+    --color-column-development: 68 64 60;
     --color-column-done: 34 197 94;
 
     /* Status */
-    --color-status-running: 87 83 78;
-    --color-status-waiting: 251 146 60;
-    --color-status-plan-ready: 34 197 94;
+    --color-status-running: 68 64 60;
+    --color-status-waiting: 234 88 12;
+    --color-status-plan-ready: 22 163 74;
     --color-status-completed: 120 113 108;
-    --color-status-error: 239 68 68;
+    --color-status-error: 220 38 38;
 
     /* Semantic */
-    --color-warning: 249 115 22;
-    --color-warning-light: 251 146 60;
+    --color-warning: 234 88 12;
+    --color-warning-light: 249 115 22;
     --color-success: 34 197 94;
     --color-success-border: 34 197 94;
     --color-success-bg: 240 253 244;
@@ -62,7 +62,7 @@
     --color-notification: 251 146 60;
 
     /* Scrollbar */
-    --color-scrollbar: 214 211 209;
+    --color-scrollbar: 207 204 200;
 
     /* Focus ring */
     --color-focus-ring: 120 113 108;
