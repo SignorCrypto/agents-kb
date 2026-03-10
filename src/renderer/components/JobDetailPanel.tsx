@@ -454,15 +454,13 @@ function ActionArea({
             rows={3}
             className="w-full resize-none rounded-lg border border-chrome bg-surface-elevated px-3 py-2 text-sm text-content-primary placeholder:text-content-tertiary focus:outline-none focus:ring-2 focus:ring-focus-ring/40"
           />
-          <div className="flex justify-end">
-            <button
-              onClick={onSteer}
-              disabled={!steerText.trim()}
-              className="shrink-0 flex items-center gap-1.5 px-4 py-1.5 text-sm rounded-lg bg-btn-primary text-content-inverted hover:bg-btn-primary-hover disabled:opacity-40 transition-colors"
-            >
-              Steer
-            </button>
-          </div>
+          <button
+            onClick={onSteer}
+            disabled={!steerText.trim()}
+            className="w-full flex items-center justify-center gap-1.5 py-1.5 text-sm rounded-lg bg-btn-primary text-content-inverted hover:bg-btn-primary-hover disabled:opacity-40 transition-colors"
+          >
+            Steer
+          </button>
         </div>
       </div>
     );
@@ -480,17 +478,15 @@ function ActionArea({
             rows={3}
             className="w-full resize-none rounded-lg border border-chrome bg-surface-elevated px-3 py-2 text-sm text-content-primary placeholder:text-content-tertiary focus:outline-none focus:ring-2 focus:ring-focus-ring/40"
           />
-          <div className="flex justify-end">
           <button
             onClick={planFeedbackText.trim() ? onEditPlan : onAcceptPlan}
             disabled={planAction !== null}
-            className="shrink-0 flex items-center gap-1.5 px-4 py-1.5 text-sm rounded-lg bg-btn-primary text-content-inverted hover:bg-btn-primary-hover disabled:opacity-40 transition-colors"
+            className="w-full flex items-center justify-center gap-1.5 py-1.5 text-sm rounded-lg bg-btn-primary text-content-inverted hover:bg-btn-primary-hover disabled:opacity-40 transition-colors"
           >
             {planAction && <Spinner className="text-content-inverted" />}
             {planAction === 'edit' ? 'Revising...' : planAction === 'accept' ? 'Starting...' : planFeedbackText.trim() ? 'Request Edit' : 'Start Development'}
             <Kbd shortcutId="submitForm" />
           </button>
-          </div>
         </div>
       )}
 
@@ -598,15 +594,13 @@ function ActionArea({
             rows={3}
             className="w-full resize-none rounded-lg border border-chrome bg-surface-elevated px-3 py-2 text-sm text-content-primary placeholder:text-content-tertiary focus:outline-none focus:ring-2 focus:ring-focus-ring/40"
           />
-          <div className="flex justify-end">
           <button
             onClick={onFollowUp}
             disabled={!followUpText.trim()}
-            className="shrink-0 flex items-center gap-1.5 px-4 py-1.5 text-sm rounded-lg bg-btn-primary text-content-inverted hover:bg-btn-primary-hover disabled:opacity-40 transition-colors"
+            className="w-full flex items-center justify-center gap-1.5 py-1.5 text-sm rounded-lg bg-btn-primary text-content-inverted hover:bg-btn-primary-hover disabled:opacity-40 transition-colors"
           >
             Follow Up<Kbd shortcutId="submitForm" />
           </button>
-          </div>
         </div>
       )}
 
