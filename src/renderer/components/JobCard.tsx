@@ -13,6 +13,7 @@ interface JobCardProps {
 const statusLabels: Record<JobStatus, string> = {
   'running': 'Running',
   'waiting-input': 'Needs Input',
+  'plan-ready': 'Plan Ready',
   'completed': 'Done',
   'error': 'Error',
   'rejected': 'Rejected',
@@ -21,6 +22,7 @@ const statusLabels: Record<JobStatus, string> = {
 const statusColors: Record<JobStatus, string> = {
   'running': 'text-status-running',
   'waiting-input': 'text-status-waiting',
+  'plan-ready': 'text-status-plan-ready',
   'completed': 'text-status-completed',
   'error': 'text-status-error',
   'rejected': 'text-status-error',
@@ -51,7 +53,7 @@ export const JobCard = memo(function JobCard({ job }: JobCardProps) {
   }, [job.prompt, job.title, expanded]);
 
   const isSelected = selectedJobId === job.id;
-  const needsAttention = job.status === 'waiting-input';
+  const needsAttention = job.status === 'waiting-input' || job.status === 'plan-ready';
 
   const handleClick = useCallback(() => {
     selectJob(isSelected ? null : job.id);
@@ -158,7 +160,7 @@ export const JobCard = memo(function JobCard({ job }: JobCardProps) {
 
 function getEffectivePausedMs(job: Job, now: number): number {
   let paused = job.totalPausedMs || 0;
-  if (job.status === 'waiting-input' && job.waitingStartedAt) {
+  if ((job.status === 'waiting-input' || job.status === 'plan-ready') && job.waitingStartedAt) {
     paused += now - new Date(job.waitingStartedAt).getTime();
   }
   return paused;
@@ -174,7 +176,7 @@ function PhaseDurations({ job, now }: { job: Job; now: number }) {
   const phases: { label: string; value: string; dotColor: string; active: boolean }[] = [];
 
   if (job.planningStartedAt) {
-    const isLive = job.column === 'planning' && !job.planningEndedAt;
+    const isLive = job.column === 'planning' && !job.planningEndedAt && job.status !== 'plan-ready';
     const end = job.planningEndedAt ? new Date(job.planningEndedAt).getTime() : (job.column === 'planning' ? now : null);
     const phasePaused = job.column === 'planning' ? pausedMs : (job.totalPausedMs || 0);
     if (end) {

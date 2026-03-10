@@ -84,7 +84,7 @@ export async function captureSnapshot(
   if (!(await isGitRepoRoot(projectPath))) return null;
 
   const commitSha = await git(projectPath, 'rev-parse', 'HEAD');
-  const refName = `refs/agent-kanban/${jobId}/${index}`;
+  const refName = `refs/agents-kb/${jobId}/${index}`;
 
   let hadDirtyTree = false;
   let tempCommitSha: string | undefined;

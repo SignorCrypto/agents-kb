@@ -112,7 +112,7 @@ async function buildTextDiff(
   before: FileState,
   after: FileState,
 ): Promise<string> {
-  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'agent-kanban-diff-'));
+  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'agents-kb-diff-'));
   const beforePath = path.join(tmpDir, 'before');
   const afterPath = path.join(tmpDir, 'after');
   await fs.promises.writeFile(beforePath, before.content || '', 'utf-8');

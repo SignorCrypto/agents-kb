@@ -643,6 +643,12 @@ export class ClaudeSession extends EventEmitter {
     }
   }
 
+  interrupt(): void {
+    if (this.pty) {
+      this.pty.write('\x1b'); // Escape to interrupt current generation
+    }
+  }
+
   kill(): void {
     this.killed = true;
     if (this.pty) {

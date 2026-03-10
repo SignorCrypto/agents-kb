@@ -6,6 +6,7 @@ import { ProjectManager } from './components/ProjectManager';
 import { JobDetailPanel } from './components/JobDetailPanel';
 import { NewJobDialog } from './components/NewJobDialog';
 import { SettingsDialog } from './components/SettingsDialog';
+import { SetupScreen } from './components/SetupScreen';
 import { Kbd } from './components/Kbd';
 import { getProjectColor } from '../shared/types';
 
@@ -14,6 +15,9 @@ function applyDarkClass(isDark: boolean) {
 }
 
 export default function App() {
+  const cliHealth = useKanbanStore((s) => s.cliHealth);
+  const cliHealthLoading = useKanbanStore((s) => s.cliHealthLoading);
+  const checkCliHealth = useKanbanStore((s) => s.checkCliHealth);
   const init = useKanbanStore((s) => s.init);
   const selectedJobId = useKanbanStore((s) => s.selectedJobId);
   const showNewJobDialog = useKanbanStore((s) => s.showNewJobDialog);
@@ -31,9 +35,18 @@ export default function App() {
   );
   const projectColor = selectedProject ? getProjectColor(selectedProject.color) : null;
 
+  // Check CLI health on mount
   useEffect(() => {
-    init().catch((err) => console.error('[App] init failed:', err));
-  }, [init]);
+    checkCliHealth();
+  }, [checkCliHealth]);
+
+  // Only initialize store once CLI is healthy
+  const cliReady = cliHealth?.installed && cliHealth?.authenticated;
+  useEffect(() => {
+    if (cliReady) {
+      init().catch((err) => console.error('[App] init failed:', err));
+    }
+  }, [cliReady, init]);
 
   // Sync dark class with actual resolved theme from main process
   useEffect(() => {
@@ -52,6 +65,17 @@ export default function App() {
 
   const toggleSettings = useCallback(() => setShowSettings(!showSettings), [setShowSettings, showSettings]);
   useShortcut('openSettings', toggleSettings);
+
+  // Show setup screen if CLI is not ready
+  if (!cliReady) {
+    return (
+      <SetupScreen
+        health={cliHealth ?? { installed: false, authenticated: false }}
+        onRetry={checkCliHealth}
+        loading={cliHealthLoading}
+      />
+    );
+  }
 
   return (
     <div className="flex h-full">

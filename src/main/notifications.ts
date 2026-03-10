@@ -84,3 +84,19 @@ export function notifyJobError(
     getWindow,
   });
 }
+
+export function notifyPlanReady(
+  jobId: string,
+  projectName: string,
+  jobTitle: string,
+  getWindow: () => BrowserWindow | null,
+): void {
+  showNotification({
+    jobId,
+    projectName,
+    jobTitle,
+    subtitle: "Plan ready for review",
+    body: "Approve it to start development or request changes.",
+    getWindow,
+  });
+}

@@ -1,3 +1,12 @@
+/* ─── CLI Health ─── */
+
+export interface CliHealthStatus {
+  installed: boolean;
+  authenticated: boolean;
+  version?: string;
+  error?: string;
+}
+
 /* ─── Settings ─── */
 
 export type ThemeMode = "system" | "light" | "dark";
@@ -96,7 +105,7 @@ export const COMMIT_PROMPT_SUFFIX = " Output ONLY the commit message, nothing el
 export const DEFAULT_TITLE_PROMPT =
   'Generate a very short task title (3-8 words) for this task. Output ONLY the title, no quotes, no formatting, no punctuation at the end.';
 export const DEFAULT_ROLLBACK_PROMPT =
-  'Revert the requested Agent Kanban job changes by restoring the listed files to the provided target contents. Preserve unrelated newer changes whenever possible. If you cannot do this safely, explain why and make no changes.';
+  'Revert the requested Agents-KB job changes by restoring the listed files to the provided target contents. Preserve unrelated newer changes whenever possible. If you cannot do this safely, explain why and make no changes.';
 
 export const DEFAULT_PROMPT_CONFIGS: Record<PromptId, PromptConfig> = {
   commit: { id: 'commit', label: 'Commit Message', prompt: DEFAULT_COMMIT_PROMPT, suffix: COMMIT_PROMPT_SUFFIX, model: 'haiku', effort: 'low' },
@@ -121,7 +130,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 /* ─── Kanban ─── */
 
 export type KanbanColumn = "planning" | "development" | "done";
-export type JobStatus = "running" | "waiting-input" | "completed" | "error" | "rejected";
+export type JobStatus = "running" | "waiting-input" | "plan-ready" | "completed" | "error" | "rejected";
 
 export interface GitSnapshot {
   commitSha: string;

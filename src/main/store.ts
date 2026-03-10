@@ -8,10 +8,10 @@ interface StoreSchema {
   settings: AppSettings;
 }
 
-type PersistedJob = Job | (Omit<Job, 'status'> & { status: 'accepted' | 'plan-ready'; acceptedAt?: string });
+type PersistedJob = Job | (Omit<Job, 'status'> & { status: 'accepted'; acceptedAt?: string });
 
 const store = new Store<StoreSchema>({
-  name: 'agent-kanban-data',
+  name: 'agents-kb-data',
   defaults: {
     projects: [],
     jobs: [],
@@ -26,14 +26,6 @@ function normalizePersistedJob(job: PersistedJob): Job {
   if (job.status === 'accepted') {
     const { acceptedAt: _acceptedAt, ...rest } = job;
     return { ...rest, status: 'completed' };
-  }
-
-  if (job.status === 'plan-ready') {
-    return {
-      ...job,
-      status: 'error',
-      error: job.error || 'This job was waiting for manual plan acceptance in an older version. Retry to restart it.',
-    };
   }
 
   return job as Job;

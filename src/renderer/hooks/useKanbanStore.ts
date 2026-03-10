@@ -1,8 +1,10 @@
 import { create } from 'zustand';
-import type { Project, Job, OutputEntry, RawMessage, PendingQuestion, AppSettings } from '../types/index';
+import type { Project, Job, OutputEntry, RawMessage, PendingQuestion, AppSettings, CliHealthStatus } from '../types/index';
 import { DEFAULT_SETTINGS } from '../types/index';
 
 interface KanbanState {
+  cliHealth: CliHealthStatus | null;
+  cliHealthLoading: boolean;
   projects: Project[];
   jobs: Job[];
   selectedJobId: string | null;
@@ -38,11 +40,16 @@ interface KanbanState {
   setShowSettings: (show: boolean) => void;
   setSettings: (settings: AppSettings) => void;
 
+  // CLI Health
+  checkCliHealth: () => Promise<void>;
+
   // Initialization
   init: () => Promise<void>;
 }
 
 export const useKanbanStore = create<KanbanState>((set, get) => ({
+  cliHealth: null,
+  cliHealthLoading: true,
   projects: [],
   jobs: [],
   selectedJobId: null,
@@ -145,6 +152,19 @@ export const useKanbanStore = create<KanbanState>((set, get) => ({
   setShowNewJobDialog: (show) => set({ showNewJobDialog: show }),
   setShowSettings: (show) => set({ showSettings: show }),
   setSettings: (settings) => set({ settings }),
+
+  checkCliHealth: async () => {
+    set({ cliHealthLoading: true });
+    try {
+      const health = await window.electronAPI.cliCheckHealth();
+      set({ cliHealth: health, cliHealthLoading: false });
+    } catch {
+      set({
+        cliHealth: { installed: false, authenticated: false, error: 'Failed to check CLI status.' },
+        cliHealthLoading: false,
+      });
+    }
+  },
 
   init: async () => {
     const api = window.electronAPI;

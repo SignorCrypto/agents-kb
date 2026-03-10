@@ -24,7 +24,8 @@ import {
   updateSettings,
 } from './store';
 import { sessionManager } from './session-manager';
-import { notifyInputNeeded, notifyJobComplete, notifyJobError } from './notifications';
+import { notifyInputNeeded, notifyJobComplete, notifyJobError, notifyPlanReady } from './notifications';
+import { checkCliHealth, spawnLogin } from './cli-health';
 import { isGitRepoRoot, captureSnapshot, restoreSnapshot, cleanupAllSnapshots, getDiff, listBranches, checkoutBranch, gitStageAll, gitCommit, getBranchesStatus, gitPush, listChangedFiles, readHeadFileState } from './git-snapshot';
 import { listProjectFiles } from './file-list';
 import type { Job, OutputEntry, RawMessage, PendingQuestion, AppSettings, Project, ModelChoice, EffortLevel, PromptConfig } from '../shared/types';
@@ -151,6 +152,41 @@ async function startDevelopmentPhase(
     );
     sendToRenderer(getWindow, 'job:status-changed', updated);
     await startClaudeSession(updated, getWindow, batchedSender, 'dev', sessionId || job.sessionId);
+  }
+
+  return updated;
+}
+
+async function markPlanReady(
+  jobId: string,
+  getWindow: WindowGetter,
+  updates: Partial<Job> = {},
+) {
+  const job = getJob(jobId);
+  if (!job) throw new Error('Job not found');
+
+  const now = new Date().toISOString();
+  const project = getProjects().find(p => p.id === job.projectId);
+  const outputLog = getOutputLog(jobId);
+  outputLog.push({
+    timestamp: now,
+    type: 'system',
+    content: '--- Planning complete. Waiting for plan approval ---',
+  });
+
+  const updated = updateJob(jobId, {
+    ...updates,
+    status: 'plan-ready',
+    pendingQuestion: undefined,
+    waitingStartedAt: now,
+    outputLog,
+  });
+
+  if (updated) {
+    sendToRenderer(getWindow, 'job:status-changed', updated);
+    if (project) {
+      notifyPlanReady(job.id, project.name, job.title || job.prompt, getWindow);
+    }
   }
 
   return updated;
@@ -604,7 +640,14 @@ async function resolveCommitBranch(project: Project, branch?: string): Promise<s
   return branches?.current || null;
 }
 
-async function startClaudeSession(job: Job, getWindow: WindowGetter, batchedSender: BatchedSender, phase: 'plan' | 'dev', sessionId?: string) {
+async function startClaudeSession(
+  job: Job,
+  getWindow: WindowGetter,
+  batchedSender: BatchedSender,
+  phase: 'plan' | 'dev',
+  sessionId?: string,
+  promptOverride?: string,
+) {
   const project = getProjects().find(p => p.id === job.projectId);
   if (!project) throw new Error('Project not found');
 
@@ -620,7 +663,9 @@ async function startClaudeSession(job: Job, getWindow: WindowGetter, batchedSend
   const latestFollowUp = job.followUps?.length ? job.followUps[job.followUps.length - 1].prompt : null;
 
   let prompt: string;
-  if (latestFollowUp && phase === 'dev' && sessionId) {
+  if (promptOverride) {
+    prompt = promptOverride;
+  } else if (latestFollowUp && phase === 'dev' && sessionId) {
     prompt = latestFollowUp;
   } else if (phase === 'dev') {
     if (job.skipPlanning) {
@@ -697,17 +742,10 @@ async function startClaudeSession(job: Job, getWindow: WindowGetter, batchedSend
 
   session.on('plan-complete', () => {
     if (phase === 'plan') {
-      // Flush any remaining paused time
       const current = getJob(job.id);
-      let totalPausedMs = current?.totalPausedMs || 0;
-      if (current?.waitingStartedAt) {
-        totalPausedMs += Date.now() - new Date(current.waitingStartedAt).getTime();
+      if (current?.column === 'planning' && current.status === 'running') {
+        void markPlanReady(job.id, getWindow);
       }
-
-      void startDevelopmentPhase(job.id, getWindow, batchedSender, sessionId, {
-        planningEndedAt: new Date().toISOString(),
-        totalPausedMs,
-      });
     }
   });
 
@@ -779,9 +817,7 @@ async function startClaudeSession(job: Job, getWindow: WindowGetter, batchedSend
       }
     } else {
       if (current.column === 'planning' && current.status === 'running') {
-        await startDevelopmentPhase(job.id, getWindow, batchedSender, sessionId, {
-          planningEndedAt: new Date().toISOString(),
-        });
+        await markPlanReady(job.id, getWindow);
       }
     }
   });
@@ -1296,7 +1332,7 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     const project = getProjects().find(p => p.id === projectId);
     if (!project) throw new Error('Project not found');
 
-    const tmpDir = path.join(os.tmpdir(), 'agent-kanban-images');
+    const tmpDir = path.join(os.tmpdir(), 'agents-kb-images');
     fs.mkdirSync(tmpDir, { recursive: true });
 
     const ext = path.extname(filename) || '.png';
@@ -1425,9 +1461,59 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     }
   });
 
+  ipcMain.handle('jobs:steer', async (_event, jobId: string, message: string) => {
+    const session = sessionManager.get(jobId);
+    if (!session) throw new Error('No active session for this job');
+
+    const outputLog = getOutputLog(jobId);
+    outputLog.push({
+      timestamp: new Date().toISOString(),
+      type: 'system',
+      content: `--- Steer: ${message} ---`,
+    });
+
+    const updated = updateJob(jobId, { outputLog });
+    if (updated) {
+      sendToRenderer(getWindow, 'job:status-changed', updated);
+    }
+
+    // Interrupt current generation then send the steer message
+    session.interrupt();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    session.sendResponse(message);
+  });
+
+  ipcMain.handle('jobs:accept-plan', async (_event, jobId: string) => {
+    const job = getJob(jobId);
+    if (!job) throw new Error('Job not found');
+    if (job.column !== 'planning' || job.status !== 'plan-ready') {
+      throw new Error('Job is not waiting for plan approval');
+    }
+
+    let totalPausedMs = job.totalPausedMs || 0;
+    if (job.waitingStartedAt) {
+      totalPausedMs += Date.now() - new Date(job.waitingStartedAt).getTime();
+    }
+
+    const updated = await startDevelopmentPhase(jobId, getWindow, batchedSender, job.sessionId, {
+      planningEndedAt: new Date().toISOString(),
+      waitingStartedAt: undefined,
+      totalPausedMs,
+    });
+
+    if (!updated) {
+      throw new Error('Failed to accept plan');
+    }
+
+    return updated;
+  });
+
   ipcMain.handle('jobs:edit-plan', async (_event, jobId: string, feedback: string) => {
     const job = getJob(jobId);
     if (!job) throw new Error('Job not found');
+    if (job.column !== 'planning' || job.status !== 'plan-ready') {
+      throw new Error('Job is not waiting for plan edits');
+    }
 
     sessionManager.kill(jobId);
 
@@ -1438,17 +1524,42 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
       content: `--- Editing plan: ${feedback} ---`,
     });
 
+    let totalPausedMs = job.totalPausedMs || 0;
+    if (job.waitingStartedAt) {
+      totalPausedMs += Date.now() - new Date(job.waitingStartedAt).getTime();
+    }
+
     const updated = updateJob(jobId, {
       status: 'running',
-      prompt: feedback,
+      error: undefined,
       planText: undefined,
       pendingQuestion: undefined,
+      waitingStartedAt: undefined,
+      totalPausedMs,
       outputLog,
     });
 
     if (updated) {
       sendToRenderer(getWindow, 'job:status-changed', updated);
-      await startClaudeSession(updated, getWindow, batchedSender, 'plan', job.sessionId);
+      const revisionPrompt = [
+        'Revise the implementation plan based on the user feedback below.',
+        '',
+        'Return only the updated implementation plan.',
+        '',
+        '--- ORIGINAL TASK ---',
+        job.prompt,
+        '--- END ORIGINAL TASK ---',
+        '',
+        '--- CURRENT PLAN ---',
+        job.planText || '(No plan was captured.)',
+        '--- END CURRENT PLAN ---',
+        '',
+        '--- USER FEEDBACK ---',
+        feedback,
+        '--- END USER FEEDBACK ---',
+      ].join('\n');
+
+      await startClaudeSession(updated, getWindow, batchedSender, 'plan', job.sessionId, revisionPrompt);
     }
 
     return updated;
@@ -1595,6 +1706,42 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
   });
 
   // === Settings ===
+  // === CLI Health ===
+  ipcMain.handle('cli:check-health', async () => {
+    return checkCliHealth();
+  });
+
+  let loginCleanup: { write: (data: string) => void; kill: () => void } | null = null;
+
+  ipcMain.handle('cli:start-login', () => {
+    const win = getWindow();
+    if (!win) return;
+    loginCleanup = spawnLogin(
+      (data) => {
+        const w = getWindow();
+        if (w && !w.isDestroyed()) w.webContents.send('cli:login-data', data);
+      },
+      (exitCode) => {
+        const w = getWindow();
+        if (w && !w.isDestroyed()) w.webContents.send('cli:login-exit', exitCode);
+        loginCleanup = null;
+      },
+    );
+  });
+
+  ipcMain.handle('cli:login-write', (_event, data: string) => {
+    loginCleanup?.write(data);
+  });
+
+  ipcMain.handle('cli:login-kill', () => {
+    loginCleanup?.kill();
+    loginCleanup = null;
+  });
+
+  ipcMain.handle('shell:open-external', (_event, url: string) => {
+    return shell.openExternal(url);
+  });
+
   ipcMain.handle('settings:get', () => {
     return getSettings();
   });

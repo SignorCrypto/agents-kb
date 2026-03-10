@@ -543,7 +543,7 @@ export function ProjectManager() {
         stats.set(job.projectId, entry);
       }
       entry.counts[job.column]++;
-      if (job.pendingQuestion || job.status === 'waiting-input') {
+      if (job.pendingQuestion || job.status === 'waiting-input' || job.status === 'plan-ready') {
         entry.hasNotification = true;
       }
     }
@@ -637,7 +637,7 @@ export function ProjectManager() {
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       >
         <h1 className="text-xs font-bold tracking-[0.15em] text-content-secondary uppercase ml-auto">
-          Agent Kanban
+          Agents-KB
         </h1>
       </div>
 

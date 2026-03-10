@@ -1,7 +1,7 @@
 import { app, BrowserWindow, nativeTheme } from 'electron';
 import path from 'path';
 
-console.log('[main] Starting Agent Kanban...');
+console.log('[main] Starting Agents-KB...');
 
 import { registerIpcHandlers } from './ipc-handlers';
 import { sessionManager } from './session-manager';

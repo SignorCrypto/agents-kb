@@ -1,4 +1,4 @@
-# Agent Kanban
+# Agents-KB
 
 Electron desktop app for managing Codex sessions as a Kanban board. Jobs flow through **planning → development → done**.
 
@@ -12,7 +12,7 @@ pnpm run make    # build DMG/ZIP
 
 ## Structure
 
-- `src/main/` — Electron main process (IPC handlers, session management, persistence via electron-store, automatic planning → development transitions)
+- `src/main/` — Electron main process (IPC handlers, session management, persistence via electron-store, manual plan review before planning → development transitions)
 - `src/main/job-step-history.ts` — Per-job development step snapshots, stored diff reconstruction, and rollback target planning
 - `src/preload/preload.ts` — Context bridge (`window.electronAPI`)
 - `src/renderer/` — React UI (Zustand store, components, hooks)
@@ -22,7 +22,7 @@ pnpm run make    # build DMG/ZIP
 
 - **IPC**: `ipcMain.handle`/`ipcRenderer.invoke` for requests; `webContents.send`/`ipcRenderer.on` for push events
 - **State**: Zustand with individual selectors — `useKanbanStore((s) => s.field)`
-- **Sessions**: `Codex` CLI spawned via `node-pty` with `--output-format stream-json`. Planning uses `--permission-mode plan`, then automatically continues into development with `--dangerously-skip-permissions`
+- **Sessions**: `Codex` CLI spawned via `node-pty` with `--output-format stream-json`. Planning runs first, then waits for manual plan acceptance or revision before development continues with `--dangerously-skip-permissions`
 - **Job history**: Git jobs keep lightweight git snapshots for safe fast-path restore, but job details and rollback context come from persisted per-step file snapshots (`stepSnapshots`)
 - **Styling**: Tailwind CSS 3 with CSS custom properties in `src/renderer/index.css` for light/dark theming. Semantic color tokens mapped in `tailwind.config.ts`
 - **Types**: Shared types in `src/shared/types.ts`, re-exported for renderer via `src/renderer/types/index.ts`

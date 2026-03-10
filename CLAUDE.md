@@ -1,4 +1,4 @@
-# Agent Kanban
+# Agents-KB
 
 Electron desktop app for managing Claude Code sessions as a Kanban board. Jobs flow through **planning → development → done**.
 

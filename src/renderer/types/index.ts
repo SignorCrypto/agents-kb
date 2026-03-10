@@ -1,9 +1,20 @@
-export type { KanbanColumn, JobStatus, Project, OutputEntry, RawMessage, PendingQuestion, FollowUp, Job, GitSnapshot, JobStepSnapshot, JobFileSnapshot, ShortcutBinding, AppSettings, ThemeMode, ModelChoice, EffortLevel, ModelOption, EffortOption, PromptConfig, PromptId, PreferredEditor, ProjectColorId } from '../../shared/types';
+export type { KanbanColumn, JobStatus, Project, OutputEntry, RawMessage, PendingQuestion, FollowUp, Job, GitSnapshot, JobStepSnapshot, JobFileSnapshot, ShortcutBinding, AppSettings, ThemeMode, ModelChoice, EffortLevel, ModelOption, EffortOption, PromptConfig, PromptId, PreferredEditor, ProjectColorId, CliHealthStatus } from '../../shared/types';
 export { DEFAULT_SETTINGS, DEFAULT_SHORTCUTS, DEFAULT_COMMIT_PROMPT, DEFAULT_PROMPT_CONFIGS, PROMPT_IDS, MODEL_CATALOG, EFFORT_CATALOG, PROJECT_COLORS, getProjectColor } from '../../shared/types';
-import type { Project, Job, OutputEntry, RawMessage, PendingQuestion, AppSettings, ModelChoice, EffortLevel } from '../../shared/types';
+import type { Project, Job, OutputEntry, RawMessage, PendingQuestion, AppSettings, ModelChoice, EffortLevel, CliHealthStatus } from '../../shared/types';
 
 // IPC API exposed via preload
 export interface ElectronAPI {
+  // CLI Health
+  cliCheckHealth: () => Promise<CliHealthStatus>;
+  cliStartLogin: () => Promise<void>;
+  cliLoginWrite: (data: string) => Promise<void>;
+  cliLoginKill: () => Promise<void>;
+  onCliLoginData: (callback: (data: string) => void) => () => void;
+  onCliLoginExit: (callback: (exitCode: number) => void) => () => void;
+
+  // Shell
+  shellOpenExternal: (url: string) => Promise<void>;
+
   // Projects
   projectsList: () => Promise<Project[]>;
   projectsAdd: () => Promise<Project | null>;
@@ -34,6 +45,8 @@ export interface ElectronAPI {
   jobsDelete: (jobId: string) => Promise<void>;
   jobsRetry: (jobId: string) => Promise<Job>;
   jobsRespond: (jobId: string, response: string) => Promise<void>;
+  jobsSteer: (jobId: string, message: string) => Promise<void>;
+  jobsAcceptPlan: (jobId: string) => Promise<Job>;
   jobsEditPlan: (jobId: string, feedback: string) => Promise<Job>;
   jobsGetDiff: (jobId: string) => Promise<string | null>;
   jobsRejectJob: (jobId: string, snapshotIndex?: number) => Promise<void>;

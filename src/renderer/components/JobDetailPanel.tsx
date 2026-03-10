@@ -6,7 +6,7 @@ import { useShortcut } from '../hooks/useShortcut';
 import { Kbd } from './Kbd';
 import { StreamingLog } from './StreamingLog';
 import { DiffViewer } from './DiffViewer';
-import { MentionInput } from './MentionInput';
+import { MentionInput, MentionTextarea } from './MentionInput';
 import { formatDuration, useNow } from '../utils/duration';
 import type { Job, FollowUp, GitSnapshot, AppSettings, OutputEntry } from '../types/index';
 import { MODEL_CATALOG, EFFORT_CATALOG, getProjectColor } from '../types/index';
@@ -23,6 +23,10 @@ export function JobDetailPanel() {
   const [responseText, setResponseText] = useState('');
   const [selectedOptions, setSelectedOptions] = useState<Set<string>>(new Set());
   const [followUpText, setFollowUpText] = useState('');
+  const [steerText, setSteerText] = useState('');
+  const [planFeedbackText, setPlanFeedbackText] = useState('');
+  const [planAction, setPlanAction] = useState<'accept' | 'edit' | null>(null);
+  const [planTab, setPlanTab] = useState<'plan' | 'log'>('plan');
   const [doneTab, setDoneTab] = useState<'summary' | 'diff' | 'log'>('summary');
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -63,6 +67,47 @@ export function JobDetailPanel() {
       useKanbanStore.getState().updateJob(updated);
     }
     setFollowUpText('');
+  };
+
+  const handleSteer = async () => {
+    if (!steerText.trim()) return;
+    await api.jobsSteer(job.id, steerText.trim());
+    setSteerText('');
+  };
+
+  const handleAcceptPlan = async () => {
+    if (planAction) return;
+    setPlanAction('accept');
+    try {
+      const updated = await api.jobsAcceptPlan(job.id);
+      if (updated) {
+        useKanbanStore.getState().updateJob(updated);
+      }
+      setPlanFeedbackText('');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to accept plan';
+      window.alert(message);
+    } finally {
+      setPlanAction(null);
+    }
+  };
+
+  const handleEditPlan = async () => {
+    const feedback = planFeedbackText.trim();
+    if (!feedback || planAction) return;
+    setPlanAction('edit');
+    try {
+      const updated = await api.jobsEditPlan(job.id, feedback);
+      if (updated) {
+        useKanbanStore.getState().updateJob(updated);
+      }
+      setPlanFeedbackText('');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to update plan';
+      window.alert(message);
+    } finally {
+      setPlanAction(null);
+    }
   };
 
   const handleRejectJob = async (snapshotIndex?: number) => {
@@ -107,6 +152,7 @@ export function JobDetailPanel() {
   };
 
   const isDone = job.status === 'completed' || job.status === 'rejected';
+  const isPlanReady = job.status === 'plan-ready';
   const hasSummary = !!job.summaryText && isDone;
   const hasSnapshots = (job.gitSnapshots?.length ?? 0) > 0;
   const hasStepSnapshots = (job.stepSnapshots?.length ?? 0) > 0;
@@ -278,8 +324,38 @@ export function JobDetailPanel() {
         </div>
       )}
 
-      {/* Streaming log for active/error states */}
-      {!isDone && (
+      {/* Plan-ready tabbed view (plan / log) */}
+      {isPlanReady && (
+        <div className="flex-1 min-h-0 flex flex-col">
+          <div className="flex items-center gap-0 px-3 pt-1.5 border-b border-chrome-subtle/40">
+            <TabButton active={planTab === 'plan'} onClick={() => setPlanTab('plan')}>
+              Plan
+            </TabButton>
+            <TabButton active={planTab === 'log'} onClick={() => setPlanTab('log')}>
+              Log
+            </TabButton>
+          </div>
+
+          {planTab === 'plan' && (
+            <div className="flex-1 min-h-0 overflow-y-auto p-3">
+              {job.planText ? (
+                <PlanView content={job.planText} />
+              ) : (
+                <div className="text-sm text-content-tertiary italic">
+                  No plan text was captured. Request changes to regenerate it.
+                </div>
+              )}
+            </div>
+          )}
+          {planTab === 'log' && (
+            <div className="flex-1 min-h-0 p-3 flex flex-col">
+              <StreamingLog entries={outputLog} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {!isDone && !isPlanReady && (
         <div className="flex-1 min-h-0 p-3 flex flex-col">
           <StreamingLog entries={outputLog} />
         </div>
@@ -294,8 +370,16 @@ export function JobDetailPanel() {
         setSelectedOptions={setSelectedOptions}
         followUpText={followUpText}
         setFollowUpText={setFollowUpText}
+        steerText={steerText}
+        setSteerText={setSteerText}
+        planFeedbackText={planFeedbackText}
+        setPlanFeedbackText={setPlanFeedbackText}
+        planAction={planAction}
         onRespond={handleRespond}
         onFollowUp={handleFollowUp}
+        onSteer={handleSteer}
+        onAcceptPlan={handleAcceptPlan}
+        onEditPlan={handleEditPlan}
         onRetry={handleRetry}
       />
 
@@ -315,16 +399,32 @@ interface ActionAreaProps {
   setSelectedOptions: React.Dispatch<React.SetStateAction<Set<string>>>;
   followUpText: string;
   setFollowUpText: (v: string) => void;
+  steerText: string;
+  setSteerText: (v: string) => void;
+  planFeedbackText: string;
+  setPlanFeedbackText: (v: string) => void;
+  planAction: 'accept' | 'edit' | null;
   onRespond: () => void;
   onFollowUp: () => void;
+  onSteer: () => void;
+  onAcceptPlan: () => void;
+  onEditPlan: () => void;
   onRetry: () => void;
 }
 
 function ActionArea({
   job, responseText, setResponseText, selectedOptions, setSelectedOptions,
-  followUpText, setFollowUpText,
-  onRespond, onFollowUp, onRetry,
+  followUpText, setFollowUpText, steerText, setSteerText,
+  planFeedbackText, setPlanFeedbackText, planAction,
+  onRespond, onFollowUp, onSteer, onAcceptPlan, onEditPlan, onRetry,
 }: ActionAreaProps) {
+  const planRef = useRef<HTMLDivElement>(null);
+  const planSubmit = planFeedbackText.trim() ? onEditPlan : onAcceptPlan;
+  useShortcut('submitForm', planSubmit, {
+    ref: planRef,
+    enabled: job.status === 'plan-ready' && planAction === null,
+  });
+
   const followUpRef = useRef<HTMLDivElement>(null);
   useShortcut('submitForm', onFollowUp, {
     ref: followUpRef,
@@ -341,11 +441,59 @@ function ActionArea({
     );
   }
 
-  // Running jobs — no bottom actions (cancel is in header now)
-  if (job.status === 'running') return null;
+  // Running jobs — steer input
+  if (job.status === 'running') {
+    return (
+      <div className="shrink-0 px-3 py-2.5 border-t border-chrome-subtle/70">
+        <div className="space-y-2">
+          <MentionTextarea
+            value={steerText}
+            onChange={setSteerText}
+            projectId={job.projectId}
+            placeholder="Steer: redirect the current task..."
+            rows={3}
+            className="w-full resize-none rounded-lg border border-chrome bg-surface-elevated px-3 py-2 text-sm text-content-primary placeholder:text-content-tertiary focus:outline-none focus:ring-2 focus:ring-focus-ring/40"
+          />
+          <div className="flex justify-end">
+            <button
+              onClick={onSteer}
+              disabled={!steerText.trim()}
+              className="shrink-0 flex items-center gap-1.5 px-4 py-1.5 text-sm rounded-lg bg-btn-primary text-content-inverted hover:bg-btn-primary-hover disabled:opacity-40 transition-colors"
+            >
+              Steer
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="shrink-0 px-3 py-2.5 border-t border-chrome-subtle/70 space-y-2">
+      {job.status === 'plan-ready' && (
+        <div ref={planRef} className="space-y-2">
+          <MentionTextarea
+            value={planFeedbackText}
+            onChange={setPlanFeedbackText}
+            projectId={job.projectId}
+            placeholder="Revision notes — scope, ordering, risks, missing work..."
+            rows={3}
+            className="w-full resize-none rounded-lg border border-chrome bg-surface-elevated px-3 py-2 text-sm text-content-primary placeholder:text-content-tertiary focus:outline-none focus:ring-2 focus:ring-focus-ring/40"
+          />
+          <div className="flex justify-end">
+          <button
+            onClick={planFeedbackText.trim() ? onEditPlan : onAcceptPlan}
+            disabled={planAction !== null}
+            className="shrink-0 flex items-center gap-1.5 px-4 py-1.5 text-sm rounded-lg bg-btn-primary text-content-inverted hover:bg-btn-primary-hover disabled:opacity-40 transition-colors"
+          >
+            {planAction && <Spinner className="text-content-inverted" />}
+            {planAction === 'edit' ? 'Revising...' : planAction === 'accept' ? 'Starting...' : planFeedbackText.trim() ? 'Request Edit' : 'Start Development'}
+            <Kbd shortcutId="submitForm" />
+          </button>
+          </div>
+        </div>
+      )}
+
       {/* Pending question */}
       {job.status === 'waiting-input' && job.pendingQuestion && (
         <div className="space-y-2">
@@ -441,22 +589,24 @@ function ActionArea({
 
       {/* Completed — follow-up input */}
       {job.status === 'completed' && (
-        <div ref={followUpRef} className="flex gap-2">
-          <MentionInput
+        <div ref={followUpRef} className="space-y-2">
+          <MentionTextarea
             value={followUpText}
             onChange={setFollowUpText}
-            onKeyDown={(e) => e.key === 'Enter' && onFollowUp()}
             projectId={job.projectId}
             placeholder="Follow up: e.g. 'also add tests'..."
-            className="w-full px-3 py-1.5 text-sm rounded-lg border border-chrome bg-surface-elevated focus:outline-none focus:ring-2 focus:ring-focus-ring/40"
+            rows={3}
+            className="w-full resize-none rounded-lg border border-chrome bg-surface-elevated px-3 py-2 text-sm text-content-primary placeholder:text-content-tertiary focus:outline-none focus:ring-2 focus:ring-focus-ring/40"
           />
+          <div className="flex justify-end">
           <button
             onClick={onFollowUp}
             disabled={!followUpText.trim()}
-            className="px-4 py-1.5 text-sm rounded-lg bg-btn-primary text-content-inverted hover:bg-btn-primary-hover disabled:opacity-40 transition-colors"
+            className="shrink-0 flex items-center gap-1.5 px-4 py-1.5 text-sm rounded-lg bg-btn-primary text-content-inverted hover:bg-btn-primary-hover disabled:opacity-40 transition-colors"
           >
             Follow Up<Kbd shortcutId="submitForm" />
           </button>
+          </div>
         </div>
       )}
 
@@ -499,14 +649,14 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
 
 function DetailPhaseDurations({ job, now, settings }: { job: Job; now: number; settings: AppSettings }) {
   let pausedMs = job.totalPausedMs || 0;
-  if (job.status === 'waiting-input' && job.waitingStartedAt) {
+  if ((job.status === 'waiting-input' || job.status === 'plan-ready') && job.waitingStartedAt) {
     pausedMs += now - new Date(job.waitingStartedAt).getTime();
   }
 
   const phases: { label: string; value: string; accentColor: string; dotColor: string; active: boolean }[] = [];
 
   if (job.planningStartedAt) {
-    const isLive = job.column === 'planning' && !job.planningEndedAt;
+    const isLive = job.column === 'planning' && !job.planningEndedAt && job.status !== 'plan-ready';
     const end = job.planningEndedAt ? new Date(job.planningEndedAt).getTime() : (job.column === 'planning' ? now : null);
     const phasePaused = job.column === 'planning' ? pausedMs : (job.totalPausedMs || 0);
     if (end) {
@@ -591,6 +741,15 @@ function DetailPhaseDurations({ job, now, settings }: { job: Job; now: number; s
 }
 
 /* ─── Plan View ─── */
+
+function Spinner({ className = '' }: { className?: string }) {
+  return (
+    <svg className={`h-3.5 w-3.5 animate-spin ${className}`} viewBox="0 0 16 16" fill="none">
+      <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.25" />
+      <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 function PlanView({ content }: { content: string }) {
   return <PlanMarkdown content={content} />;
