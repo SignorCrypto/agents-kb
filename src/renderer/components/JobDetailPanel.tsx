@@ -8,7 +8,7 @@ import { StreamingLog } from './StreamingLog';
 import { DiffViewer } from './DiffViewer';
 import { MentionInput, MentionTextarea } from './MentionInput';
 import { formatDuration, useNow } from '../utils/duration';
-import type { Job, FollowUp, GitSnapshot, AppSettings, OutputEntry } from '../types/index';
+import type { Job, FollowUp, GitSnapshot, AppSettings, OutputEntry, PhaseTokenUsage } from '../types/index';
 import { MODEL_CATALOG, EFFORT_CATALOG, getProjectColor } from '../types/index';
 import { BrainIcon, BranchIcon } from './Icons';
 import { PlanMarkdown } from './PlanMarkdown';
@@ -25,10 +25,12 @@ export function JobDetailPanel() {
   const [followUpText, setFollowUpText] = useState('');
   const [steerText, setSteerText] = useState('');
   const [planFeedbackText, setPlanFeedbackText] = useState('');
+  const [retryText, setRetryText] = useState('');
   const [planAction, setPlanAction] = useState<'accept' | 'edit' | null>(null);
   const [planTab, setPlanTab] = useState<'plan' | 'log'>('plan');
   const [doneTab, setDoneTab] = useState<'summary' | 'diff' | 'log'>('summary');
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   const job = jobs.find((j) => j.id === selectedJobId);
   const outputLog = useJobOutput(selectedJobId || '');
@@ -130,16 +132,29 @@ export function JobDetailPanel() {
     await api.jobsCancel(job.id);
   };
 
-  const handleDelete = async () => {
-    await api.jobsDelete(job.id);
-    removeJob(job.id);
-    setConfirmDelete(false);
+  const hasUncommittedChanges =
+    (job.gitSnapshots?.length ?? 0) > 0 && !job.committedSha && job.status !== 'rejected';
+
+  const handleDelete = async (rollback?: boolean) => {
+    setDeleteLoading(true);
+    try {
+      await api.jobsDelete(job.id, rollback != null ? { rollback } : undefined);
+      removeJob(job.id);
+      setConfirmDelete(false);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to delete job';
+      window.alert(message);
+    } finally {
+      setDeleteLoading(false);
+    }
   };
 
   const handleRetry = async () => {
-    const updated = await api.jobsRetry(job.id);
+    const msg = retryText.trim();
+    const updated = await api.jobsRetry(job.id, msg || undefined);
     if (updated) {
       useKanbanStore.getState().updateJob(updated);
+      setRetryText('');
     }
   };
 
@@ -227,23 +242,53 @@ export function JobDetailPanel() {
                 {/* Delete confirmation popover */}
                 {confirmDelete && (
                   <>
-                    <div className="fixed inset-0 z-40" onClick={() => setConfirmDelete(false)} />
-                    <div className="absolute right-0 top-full mt-1 z-50 bg-surface-elevated border border-chrome rounded-lg shadow-lg p-3 w-[200px]">
-                      <p className="text-xs text-content-secondary mb-2">Delete this job permanently?</p>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => setConfirmDelete(false)}
-                          className="flex-1 px-2 py-1.5 text-xs rounded border border-chrome text-content-secondary hover:bg-surface-tertiary transition-colors"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          onClick={handleDelete}
-                          className="flex-1 px-2 py-1.5 text-xs rounded bg-semantic-error text-white hover:bg-semantic-error/80 transition-colors"
-                        >
-                          Delete
-                        </button>
-                      </div>
+                    <div className="fixed inset-0 z-40" onClick={() => !deleteLoading && setConfirmDelete(false)} />
+                    <div className={`absolute right-0 top-full mt-1 z-50 bg-surface-elevated border border-chrome rounded-lg shadow-lg p-3 ${hasUncommittedChanges ? 'w-[240px]' : 'w-[200px]'}`}>
+                      <p className="text-xs text-content-secondary mb-2">
+                        {hasUncommittedChanges
+                          ? 'This job has uncommitted changes. Roll back before deleting?'
+                          : 'Delete this job permanently?'}
+                      </p>
+                      {hasUncommittedChanges ? (
+                        <div className="flex flex-col gap-1.5">
+                          <button
+                            onClick={() => handleDelete(true)}
+                            disabled={deleteLoading}
+                            className="w-full px-2 py-1.5 text-xs rounded bg-semantic-error text-white hover:bg-semantic-error/80 disabled:opacity-50 transition-colors"
+                          >
+                            {deleteLoading ? 'Rolling back...' : 'Delete & Roll Back'}
+                          </button>
+                          <button
+                            onClick={() => handleDelete(false)}
+                            disabled={deleteLoading}
+                            className="w-full px-2 py-1.5 text-xs rounded border border-chrome text-content-secondary hover:bg-surface-tertiary disabled:opacity-50 transition-colors"
+                          >
+                            Delete & Keep Changes
+                          </button>
+                          <button
+                            onClick={() => setConfirmDelete(false)}
+                            disabled={deleteLoading}
+                            className="w-full px-2 py-1.5 text-xs rounded text-content-tertiary hover:text-content-secondary transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setConfirmDelete(false)}
+                            className="flex-1 px-2 py-1.5 text-xs rounded border border-chrome text-content-secondary hover:bg-surface-tertiary transition-colors"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            onClick={() => handleDelete()}
+                            className="flex-1 px-2 py-1.5 text-xs rounded bg-semantic-error text-white hover:bg-semantic-error/80 transition-colors"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </>
                 )}
@@ -374,6 +419,8 @@ export function JobDetailPanel() {
         setSteerText={setSteerText}
         planFeedbackText={planFeedbackText}
         setPlanFeedbackText={setPlanFeedbackText}
+        retryText={retryText}
+        setRetryText={setRetryText}
         planAction={planAction}
         onRespond={handleRespond}
         onFollowUp={handleFollowUp}
@@ -403,6 +450,8 @@ interface ActionAreaProps {
   setSteerText: (v: string) => void;
   planFeedbackText: string;
   setPlanFeedbackText: (v: string) => void;
+  retryText: string;
+  setRetryText: (v: string) => void;
   planAction: 'accept' | 'edit' | null;
   onRespond: () => void;
   onFollowUp: () => void;
@@ -415,7 +464,7 @@ interface ActionAreaProps {
 function ActionArea({
   job, responseText, setResponseText, selectedOptions, setSelectedOptions,
   followUpText, setFollowUpText, steerText, setSteerText,
-  planFeedbackText, setPlanFeedbackText, planAction,
+  planFeedbackText, setPlanFeedbackText, retryText, setRetryText, planAction,
   onRespond, onFollowUp, onSteer, onAcceptPlan, onEditPlan, onRetry,
 }: ActionAreaProps) {
   const planRef = useRef<HTMLDivElement>(null);
@@ -429,6 +478,12 @@ function ActionArea({
   useShortcut('submitForm', onFollowUp, {
     ref: followUpRef,
     enabled: job.status === 'completed' && !!followUpText.trim(),
+  });
+
+  const retryRef = useRef<HTMLDivElement>(null);
+  useShortcut('submitForm', onRetry, {
+    ref: retryRef,
+    enabled: job.status === 'error',
   });
 
   if (job.status === 'rejected') {
@@ -604,20 +659,34 @@ function ActionArea({
         </div>
       )}
 
-      {/* Error state */}
-      {job.status === 'error' && (
-        <div className="space-y-2">
-          <div className="text-xs text-semantic-error bg-semantic-error-bg/20 rounded-md px-3 py-2">
-            {job.error || 'An error occurred'}
+      {/* Error / stopped state */}
+      {job.status === 'error' && (() => {
+        const isCancelled = job.error === 'Cancelled by user';
+        return (
+          <div ref={retryRef} className="space-y-2">
+            <div className="text-xs text-semantic-error bg-semantic-error-bg/20 rounded-md px-3 py-2">
+              {job.error || 'An error occurred'}
+            </div>
+            <MentionTextarea
+              value={retryText}
+              onChange={setRetryText}
+              projectId={job.projectId}
+              placeholder={isCancelled
+                ? "Add a message or leave empty to resume..."
+                : "Add a message or leave empty to retry..."
+              }
+              rows={2}
+              className="w-full resize-none rounded-lg border border-chrome bg-surface-elevated px-3 py-2 text-sm text-content-primary placeholder:text-content-tertiary focus:outline-none focus:ring-2 focus:ring-focus-ring/40"
+            />
+            <button
+              onClick={onRetry}
+              className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg bg-btn-primary text-content-inverted text-sm font-medium hover:bg-btn-primary-hover transition-colors"
+            >
+              {retryText.trim() ? 'Send' : isCancelled ? 'Resume' : 'Retry'}<Kbd shortcutId="submitForm" />
+            </button>
           </div>
-          <button
-            onClick={onRetry}
-            className="w-full py-2 rounded-lg bg-btn-primary text-content-inverted text-sm font-medium hover:bg-btn-primary-hover transition-colors"
-          >
-            Retry
-          </button>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
@@ -639,6 +708,14 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
   );
 }
 
+/* ─── Token Formatting ─── */
+
+function formatTokenCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
 /* ─── Phase Durations ─── */
 
 function DetailPhaseDurations({ job, now, settings }: { job: Job; now: number; settings: AppSettings }) {
@@ -647,7 +724,7 @@ function DetailPhaseDurations({ job, now, settings }: { job: Job; now: number; s
     pausedMs += now - new Date(job.waitingStartedAt).getTime();
   }
 
-  const phases: { label: string; value: string; accentColor: string; dotColor: string; active: boolean }[] = [];
+  const phases: { label: string; value: string; accentColor: string; dotColor: string; active: boolean; tokens?: PhaseTokenUsage }[] = [];
 
   if (job.planningStartedAt) {
     const isLive = job.column === 'planning' && !job.planningEndedAt && job.status !== 'plan-ready';
@@ -660,6 +737,7 @@ function DetailPhaseDurations({ job, now, settings }: { job: Job; now: number; s
         accentColor: 'border-l-column-planning',
         dotColor: 'bg-column-planning',
         active: isLive,
+        tokens: settings.showTokenUsage ? job.planningTokens : undefined,
       });
     }
   }
@@ -667,14 +745,18 @@ function DetailPhaseDurations({ job, now, settings }: { job: Job; now: number; s
   if (job.developmentStartedAt) {
     const isLive = job.column === 'development' && !job.completedAt;
     const end = job.completedAt ? new Date(job.completedAt).getTime() : (job.column === 'development' ? now : null);
-    const phasePaused = job.column === 'development' ? pausedMs : (job.totalPausedMs || 0);
+    // Subtract planning pauses so only dev pauses count
+    const devPaused = job.column === 'development'
+      ? Math.max(0, pausedMs - (job.planningPausedMs || 0))
+      : Math.max(0, (job.totalPausedMs || 0) - (job.planningPausedMs || 0));
     if (end) {
       phases.push({
         label: 'DEV',
-        value: formatDuration(new Date(job.developmentStartedAt).getTime() - (job.developmentElapsedMs || 0), end, phasePaused),
+        value: formatDuration(new Date(job.developmentStartedAt).getTime() - (job.developmentElapsedMs || 0), end, devPaused),
         accentColor: 'border-l-column-development',
         dotColor: 'bg-column-development',
         active: isLive,
+        tokens: settings.showTokenUsage ? job.developmentTokens : undefined,
       });
     }
   }
@@ -707,6 +789,11 @@ function DetailPhaseDurations({ job, now, settings }: { job: Job; now: number; s
           <span className="text-[11px] font-mono text-content-secondary tabular-nums">
             {p.value}
           </span>
+          {p.tokens && (
+            <span className="text-[10px] font-mono text-content-tertiary tabular-nums">
+              · {formatTokenCount(p.tokens.inputTokens)}↓ {formatTokenCount(p.tokens.outputTokens)}↑
+            </span>
+          )}
           {p.active && (
             <span className="relative flex h-1.5 w-1.5">
               <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${p.dotColor} opacity-50`} />

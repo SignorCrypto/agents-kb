@@ -273,6 +273,16 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 
           <div className="flex items-center justify-between">
             <div>
+              <div className="text-[13px] text-content-primary">Show token usage</div>
+              <div className="text-[11px] text-content-tertiary mt-0.5">
+                Display token counts per phase in job details
+              </div>
+            </div>
+            <Toggle checked={local.showTokenUsage} onChange={() => save({ ...local, showTokenUsage: !local.showTokenUsage })} />
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div>
               <div className="text-[13px] text-content-primary">Show model/effort in New Job</div>
               <div className="text-[11px] text-content-tertiary mt-0.5">
                 Display model and effort pickers when creating a job

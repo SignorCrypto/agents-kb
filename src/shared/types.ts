@@ -85,6 +85,7 @@ export interface AppSettings {
   defaultModel: ModelChoice;
   defaultEffort: EffortLevel;
   alwaysShowModelEffort: boolean;
+  showTokenUsage: boolean;
   showModelEffortInNewJob: boolean;
   preferredEditor: PreferredEditor;
   notificationsEnabled: boolean;
@@ -123,12 +124,20 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultModel: "default",
   defaultEffort: "default",
   alwaysShowModelEffort: false,
+  showTokenUsage: false,
   showModelEffortInNewJob: false,
   preferredEditor: "auto",
   notificationsEnabled: true,
   deleteCompletedJobsOnCommit: true,
   permissionMode: 'default',
 };
+
+/* ─── Token Usage ─── */
+
+export interface PhaseTokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
 
 /* ─── Kanban ─── */
 
@@ -262,7 +271,10 @@ export interface Job {
   waitingStartedAt?: string;
   totalPausedMs?: number;
   planningElapsedMs?: number;
+  planningPausedMs?: number;
   developmentElapsedMs?: number;
+  planningTokens?: PhaseTokenUsage;
+  developmentTokens?: PhaseTokenUsage;
   gitSnapshots?: GitSnapshot[];
   stepSnapshots?: JobStepSnapshot[];
   diffText?: string;

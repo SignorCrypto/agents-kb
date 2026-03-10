@@ -169,7 +169,7 @@ function ProjectDetailDialog({
         </div>
 
         {/* Tab bar */}
-        <div className="flex items-center gap-0 px-4 shrink-0 border-b border-chrome-subtle/70">
+        <div className="flex items-center gap-0 px-4 shrink-0">
           <button
             onClick={() => setActiveTab('details')}
             className={`relative px-3 py-2 text-[11px] font-medium transition-colors ${
@@ -633,15 +633,11 @@ export function ProjectManager() {
     <div className="w-60 shrink-0 border-r border-chrome-subtle/70 bg-surface-secondary/80 flex flex-col">
       {/* Drag area for title bar */}
       <div
-        className="h-12 shrink-0 flex items-center px-4 border-b border-chrome-subtle/70"
+        className="h-10 shrink-0 flex items-center px-3"
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
-      >
-        <h1 className="text-xs font-bold tracking-[0.15em] text-content-secondary uppercase ml-auto">
-          Agents-KB
-        </h1>
-      </div>
+      />
 
-      <div className="flex items-center justify-between px-4 py-3">
+      <div className="flex items-center justify-between px-3 py-1.5">
         <span className="text-xs font-semibold uppercase tracking-wider text-content-tertiary">
           Projects
         </span>

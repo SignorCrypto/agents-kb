@@ -31,7 +31,7 @@ export function KanbanBoard() {
 
   return (
     <div
-      className="flex-1 flex gap-4 p-4 overflow-x-auto min-w-0"
+      className="flex-1 flex gap-4 px-4 pt-1.5 pb-4 overflow-x-auto min-w-0"
       onClick={(e) => {
         if (e.target === e.currentTarget) selectJob(null);
       }}

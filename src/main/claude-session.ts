@@ -32,6 +32,9 @@ export class ClaudeSession extends EventEmitter {
   private assistantTextBuffer = '';
   private isAskingQuestion = false;
   private pendingPlanFileRead = '';
+  private _inputTokens = 0;
+  private _outputTokens = 0;
+  private _currentMsgOutputTokens = 0;
 
   constructor(private options: ClaudeSessionOptions) {
     super();
@@ -347,6 +350,14 @@ export class ClaudeSession extends EventEmitter {
         if (message?.model) {
           console.log('[claude-session] Model:', message.model);
         }
+        // Flush previous message output tokens and extract input tokens
+        this._outputTokens += this._currentMsgOutputTokens;
+        this._currentMsgOutputTokens = 0;
+        const usage = message?.usage as { input_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } | undefined;
+        if (usage) {
+          const inputTotal = (usage.input_tokens || 0) + (usage.cache_read_input_tokens || 0) + (usage.cache_creation_input_tokens || 0);
+          if (inputTotal > 0) this._inputTokens += inputTotal;
+        }
         break;
       }
 
@@ -362,6 +373,7 @@ export class ClaudeSession extends EventEmitter {
         }
         if (usage?.output_tokens) {
           console.log('[claude-session] Output tokens:', usage.output_tokens);
+          this._currentMsgOutputTokens = usage.output_tokens;
         }
         break;
       }
@@ -657,6 +669,13 @@ export class ClaudeSession extends EventEmitter {
     if (this.pty) {
       this.pty.kill();
     }
+  }
+
+  get tokenUsage(): { inputTokens: number; outputTokens: number } {
+    return {
+      inputTokens: this._inputTokens,
+      outputTokens: this._outputTokens + this._currentMsgOutputTokens,
+    };
   }
 
   get isRunning(): boolean {

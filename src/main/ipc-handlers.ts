@@ -754,12 +754,22 @@ async function startClaudeSession(
     const current = getJob(job.id);
     if (!current) return;
 
+    // Compute merged token usage
+    const tokens = session.tokenUsage;
+    const tokenField = phase === 'plan' ? 'planningTokens' : 'developmentTokens';
+    const existing = current?.[tokenField] || { inputTokens: 0, outputTokens: 0 };
+    const mergedTokens = {
+      inputTokens: existing.inputTokens + tokens.inputTokens,
+      outputTokens: existing.outputTokens + tokens.outputTokens,
+    };
+
     if (code !== 0 || current.status === 'error') {
       stepHistoryTracker.discardStep(job.id);
       if (current.status !== 'error') {
         const updated = updateJob(job.id, {
           status: 'error',
           error: `Claude process exited with code ${code}`,
+          [tokenField]: mergedTokens,
         });
         if (updated) {
           sendToRenderer(getWindow, 'job:status-changed', updated);
@@ -790,6 +800,7 @@ async function startClaudeSession(
         generatedCommitMessage: undefined,
         editedFiles: editedFiles.length > 0 ? editedFiles : undefined,
         stepSnapshots: nextStepSnapshots,
+        [tokenField]: mergedTokens,
       });
       if (updated) {
         sendToRenderer(getWindow, 'job:status-changed', updated);
@@ -818,7 +829,13 @@ async function startClaudeSession(
       }
     } else {
       if (current.column === 'planning' && current.status === 'running') {
-        await markPlanReady(job.id, getWindow);
+        await markPlanReady(job.id, getWindow, { [tokenField]: mergedTokens });
+      } else {
+        // plan-complete already called markPlanReady — persist tokens separately
+        const updated = updateJob(job.id, { [tokenField]: mergedTokens });
+        if (updated) {
+          sendToRenderer(getWindow, 'job:status-changed', updated);
+        }
       }
     }
   });
@@ -922,6 +939,48 @@ function runClaudeEditTask(projectPath: string, prompt: string, options?: { mode
     child.stdin.write(prompt);
     child.stdin.end();
   });
+}
+
+/**
+ * Shared rollback logic used by both reject-job and delete-with-rollback.
+ * Decides between git fast-path and model-assisted rollback, then cleans up snapshot refs.
+ */
+async function rollbackJobToSnapshot(
+  job: Job,
+  project: Project,
+  targetIndex: number,
+  allJobs: Job[],
+): Promise<void> {
+  const snapshots = job.gitSnapshots || [];
+  const stepSnapshots = job.stepSnapshots || [];
+
+  if (stepSnapshots.length === 0 && snapshots.length === 0) {
+    return; // nothing to roll back
+  }
+
+  // Guard: refuse if another job on the same project is currently running
+  const runningOnSameProject = allJobs.some(
+    j => j.id !== job.id && j.projectId === job.projectId && (j.status === 'running' || j.status === 'waiting-input')
+  );
+  if (runningOnSameProject) {
+    throw new Error('Cannot roll back while another job on this project is running');
+  }
+
+  const targetLabel = snapshots[targetIndex]?.label || (targetIndex === 0 ? 'Original' : getStepLabel(targetIndex));
+  const latestAppliedSeq = getLatestProjectAppliedSeq(allJobs, job.projectId);
+  const canUseGitFastPath =
+    snapshots.length > targetIndex &&
+    (stepSnapshots.length === 0 || stepSnapshots[stepSnapshots.length - 1]?.appliedSeq === latestAppliedSeq);
+
+  if (canUseGitFastPath && snapshots.length > targetIndex) {
+    await restoreSnapshot(project.path, snapshots[targetIndex]);
+  } else if (stepSnapshots.length > 0) {
+    await rollbackWithModel(job, project.path, targetIndex, targetLabel);
+  }
+
+  if (snapshots.length > 0) {
+    await cleanupAllSnapshots(project.path, snapshots);
+  }
 }
 
 async function rollbackWithModel(job: Job, projectPath: string, targetIndex: number, targetLabel: string): Promise<void> {
@@ -1363,23 +1422,32 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     }
   });
 
-  ipcMain.handle('jobs:delete', async (_event, jobId: string) => {
+  ipcMain.handle('jobs:delete', async (_event, jobId: string, options?: { rollback?: boolean }) => {
     sessionManager.kill(jobId);
     stepHistoryTracker.discardStep(jobId);
     const job = getJob(jobId);
     if (job?.branch) {
       invalidateCommitMessageCache(job.projectId, job.branch);
     }
-    if (job?.gitSnapshots?.length) {
+
+    if (options?.rollback && job?.gitSnapshots?.length) {
+      // Roll back changes using the same strategy as reject-job
+      const project = getProjects().find(p => p.id === job.projectId);
+      if (!project) throw new Error('Project not found');
+      const allJobs = getJobs();
+      await rollbackJobToSnapshot(job, project, 0, allJobs);
+    } else if (job?.gitSnapshots?.length) {
+      // Just clean up snapshot refs without restoring
       const project = getProjects().find(p => p.id === job.projectId);
       if (project) {
         await cleanupAllSnapshots(project.path, job.gitSnapshots);
       }
     }
+
     deleteJob(jobId);
   });
 
-  ipcMain.handle('jobs:retry', async (_event, jobId: string) => {
+  ipcMain.handle('jobs:retry', async (_event, jobId: string, message?: string) => {
     const job = getJob(jobId);
     if (!job) throw new Error('Job not found');
 
@@ -1389,11 +1457,16 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     const phase = job.column === 'development' ? 'dev' : 'plan';
     const now = new Date().toISOString();
 
+    const isCancelled = job.error === 'Cancelled by user';
+    const verb = isCancelled ? 'Resuming' : 'Retrying';
+
     const outputLog = getOutputLog(jobId);
     outputLog.push({
       timestamp: new Date().toISOString(),
       type: 'system',
-      content: `--- Retrying (${phase} phase) ---`,
+      content: message
+        ? `--- ${verb} with message (${phase} phase) ---\n${message}`
+        : `--- ${verb} (${phase} phase) ---`,
     });
 
     // Accumulate previous phase elapsed time before resetting
@@ -1437,7 +1510,7 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
         );
       }
       sendToRenderer(getWindow, 'job:status-changed', updated);
-      await startClaudeSession(updated, getWindow, batchedSender, phase);
+      await startClaudeSession(updated, getWindow, batchedSender, phase, undefined, message || undefined);
     }
 
     return updated;
@@ -1503,6 +1576,7 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
 
     const updated = await startDevelopmentPhase(jobId, getWindow, batchedSender, job.sessionId, {
       planningEndedAt: new Date().toISOString(),
+      planningPausedMs: totalPausedMs,
       waitingStartedAt: undefined,
       totalPausedMs,
     });
@@ -1803,30 +1877,8 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     const project = getProjects().find(p => p.id === job.projectId);
     if (!project) throw new Error('Project not found');
 
-    // Guard: refuse if another job on the same project is currently running
     const allJobs = getJobs();
-    const runningOnSameProject = allJobs.some(
-      j => j.id !== jobId && j.projectId === job.projectId && (j.status === 'running' || j.status === 'waiting-input')
-    );
-    if (runningOnSameProject) {
-      throw new Error('Cannot reject while another job on this project is running');
-    }
-
-    const targetLabel = snapshots[targetIndex]?.label || (targetIndex === 0 ? 'Original' : getStepLabel(targetIndex));
-    const latestAppliedSeq = getLatestProjectAppliedSeq(allJobs, job.projectId);
-    const canUseGitFastPath =
-      snapshots.length > targetIndex &&
-      (stepSnapshots.length === 0 || stepSnapshots[stepSnapshots.length - 1]?.appliedSeq === latestAppliedSeq);
-
-    if (canUseGitFastPath && snapshots.length > targetIndex) {
-      await restoreSnapshot(project.path, snapshots[targetIndex]);
-    } else if (stepSnapshots.length > 0) {
-      await rollbackWithModel(job, project.path, targetIndex, targetLabel);
-    }
-
-    if (snapshots.length > 0) {
-      await cleanupAllSnapshots(project.path, snapshots);
-    }
+    await rollbackJobToSnapshot(job, project, targetIndex, allJobs);
 
     const isFullRejection = targetIndex === 0;
 

@@ -1,4 +1,4 @@
-export type { KanbanColumn, JobStatus, Project, OutputEntry, RawMessage, PendingQuestion, FollowUp, Job, GitSnapshot, JobStepSnapshot, JobFileSnapshot, ShortcutBinding, AppSettings, ThemeMode, ModelChoice, EffortLevel, ModelOption, EffortOption, PromptConfig, PromptId, PreferredEditor, PermissionMode, ProjectColorId, CliHealthStatus } from '../../shared/types';
+export type { KanbanColumn, JobStatus, Project, OutputEntry, RawMessage, PendingQuestion, FollowUp, Job, GitSnapshot, JobStepSnapshot, JobFileSnapshot, ShortcutBinding, AppSettings, ThemeMode, ModelChoice, EffortLevel, ModelOption, EffortOption, PromptConfig, PromptId, PreferredEditor, PermissionMode, ProjectColorId, CliHealthStatus, PhaseTokenUsage } from '../../shared/types';
 export { DEFAULT_SETTINGS, DEFAULT_SHORTCUTS, DEFAULT_COMMIT_PROMPT, DEFAULT_PROMPT_CONFIGS, PROMPT_IDS, MODEL_CATALOG, EFFORT_CATALOG, PROJECT_COLORS, getProjectColor } from '../../shared/types';
 import type { Project, Job, OutputEntry, RawMessage, PendingQuestion, AppSettings, ModelChoice, EffortLevel, CliHealthStatus } from '../../shared/types';
 
@@ -42,8 +42,8 @@ export interface ElectronAPI {
   jobsCreate: (projectId: string, prompt: string, skipPlanning?: boolean, images?: string[], branch?: string, model?: ModelChoice, effort?: EffortLevel) => Promise<Job>;
   saveImage: (dataBase64: string, filename: string, projectId: string) => Promise<string>;
   jobsCancel: (jobId: string) => Promise<void>;
-  jobsDelete: (jobId: string) => Promise<void>;
-  jobsRetry: (jobId: string) => Promise<Job>;
+  jobsDelete: (jobId: string, options?: { rollback?: boolean }) => Promise<void>;
+  jobsRetry: (jobId: string, message?: string) => Promise<Job>;
   jobsRespond: (jobId: string, response: string) => Promise<void>;
   jobsSteer: (jobId: string, message: string) => Promise<void>;
   jobsAcceptPlan: (jobId: string) => Promise<Job>;

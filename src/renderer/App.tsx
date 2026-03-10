@@ -7,6 +7,7 @@ import { JobDetailPanel } from './components/JobDetailPanel';
 import { NewJobDialog } from './components/NewJobDialog';
 import { SettingsDialog } from './components/SettingsDialog';
 import { SetupScreen } from './components/SetupScreen';
+import { SplashScreen } from './components/SplashScreen';
 import { Kbd } from './components/Kbd';
 import { getProjectColor } from '../shared/types';
 
@@ -66,6 +67,11 @@ export default function App() {
   const toggleSettings = useCallback(() => setShowSettings(!showSettings), [setShowSettings, showSettings]);
   useShortcut('openSettings', toggleSettings);
 
+  // Show splash screen during initial health check
+  if (cliHealth === null && cliHealthLoading) {
+    return <SplashScreen />;
+  }
+
   // Show setup screen if CLI is not ready
   if (!cliReady) {
     return (
@@ -86,7 +92,7 @@ export default function App() {
       <div className="flex-1 flex flex-col min-w-0">
         {/* Drag region / title bar */}
         <div
-          className="h-12 flex items-center justify-between px-4 shrink-0 border-b border-chrome-subtle/70"
+          className="h-10 flex items-center justify-between px-3 shrink-0"
           style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
         >
           <div className="flex items-center gap-2">
@@ -121,7 +127,7 @@ export default function App() {
           <button
             onClick={() => setShowNewJobDialog(true)}
             disabled={projects.length === 0}
-            className="text-sm px-4 py-1.5 rounded-md bg-btn-primary text-content-inverted font-medium hover:bg-btn-primary-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            className="text-xs px-3 py-1 rounded-md bg-btn-primary text-content-inverted font-medium hover:bg-btn-primary-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           >
             + New Job<Kbd shortcutId="newJob" />
