@@ -23,7 +23,7 @@ jobs:
           cache: pnpm
 
       - name: Install setuptools for node-gyp
-        run: pip3 install setuptools
+        run: pip3 install --break-system-packages setuptools
 
       - name: Install dependencies
         run: pnpm install
