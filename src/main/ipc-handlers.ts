@@ -28,6 +28,7 @@ import { notifyInputNeeded, notifyJobComplete, notifyJobError, notifyPlanReady }
 import { checkCliHealth, spawnLogin } from './cli-health';
 import { isDemoMode, getDemoProjects, getDemoJobs, getDemoSettings, getDemoBranchStatuses } from './demo-loader';
 import { isGitRepoRoot, captureSnapshot, restoreSnapshot, cleanupAllSnapshots, getDiff, listBranches, checkoutBranch, gitStageAll, gitCommit, getBranchesStatus, gitPush, listChangedFiles, readHeadFileState } from './git-snapshot';
+import { listSkills } from './skills';
 import { listProjectFiles } from './file-list';
 import type { Job, OutputEntry, RawMessage, PendingQuestion, AppSettings, Project, ModelChoice, EffortLevel, PromptConfig } from '../shared/types';
 import { DEFAULT_PROMPT_CONFIGS } from '../shared/types';
@@ -1131,6 +1132,7 @@ function registerDemoHandlers(): void {
     'cli:start-login', 'cli:login-write', 'cli:login-kill',
     'shell:open-external',
     'settings:update',
+    'skills:list',
   ];
   for (const channel of noOpChannels) {
     ipcMain.handle(channel, () => null);
@@ -1965,6 +1967,12 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
       nativeTheme.themeSource = partial.theme;
     }
     return updated;
+  });
+
+  // === Skills ===
+  ipcMain.handle('skills:list', (_event, projectId?: string) => {
+    const project = projectId ? getProjects().find(p => p.id === projectId) : undefined;
+    return listSkills(project?.path);
   });
 
   // === Theme ===

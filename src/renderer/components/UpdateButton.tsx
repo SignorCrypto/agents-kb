@@ -41,10 +41,10 @@ export function UpdateButton() {
 
   const bgColor = state.status === 'ready'
     ? 'rgb(var(--color-success) / 0.12)'
-    : 'rgb(var(--color-attention) / 0.10)';
+    : 'rgb(var(--color-warning) / 0.10)';
   const fgColor = state.status === 'ready'
     ? 'rgb(var(--color-success))'
-    : 'rgb(var(--color-attention))';
+    : 'rgb(var(--color-warning))';
 
   return (
     <button
@@ -55,7 +55,7 @@ export function UpdateButton() {
       {state.status === 'downloading' && (
         <span
           className="absolute inset-0 opacity-15 transition-[width] duration-300 ease-out"
-          style={{ width: `${state.percent}%`, background: 'rgb(var(--color-attention))' }}
+          style={{ width: `${state.percent}%`, background: 'rgb(var(--color-warning))' }}
         />
       )}
       <span className="relative shrink-0">
