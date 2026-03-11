@@ -1,6 +1,10 @@
 # Agents-KB
 
-A desktop GUI for working with terminal-based coding agents in a Kanban-style workspace.
+![Agents-KB banner](./assets/banner.png)
+
+*A desktop GUI for working with terminal-based coding agents in a Kanban-style workspace.*
+
+Organize agent sessions, track progress visually, and move work through **Planning - Development - Done**.
 
 Agents-KB does not build or provide the coding agents themselves. It gives you a visual layer on top of agent-driven terminal sessions so you can organize projects, track work, and move jobs through **Planning → Development → Done**.
 

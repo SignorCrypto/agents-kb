@@ -21,3 +21,4 @@ publish:
   provider: github
   owner: SignorCrypto
   repo: agents-kb
+  releaseType: release
