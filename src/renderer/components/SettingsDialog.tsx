@@ -39,7 +39,12 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 
   const [local, setLocal] = useState<AppSettings>(() => structuredClone(settings));
   const [recordingId, setRecordingId] = useState<string | null>(null);
+  const [appVersion, setAppVersion] = useState<string>('');
   const dialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    window.electronAPI.appGetVersion().then(setAppVersion).catch(() => {});
+  }, []);
 
   // Persist changes
   const save = useCallback(
@@ -368,6 +373,18 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
               About
             </span>
           </div>
+
+          {appVersion && (
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-[13px] text-content-primary">Version</div>
+                <div className="text-[11px] text-content-tertiary mt-0.5">
+                  Currently installed version
+                </div>
+              </div>
+              <span className="text-[11px] text-content-secondary font-mono">v{appVersion}</span>
+            </div>
+          )}
 
           <div className="flex items-center justify-between">
             <div>

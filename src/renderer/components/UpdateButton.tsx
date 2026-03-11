@@ -4,7 +4,8 @@ type UpdateState =
   | { status: 'idle' }
   | { status: 'available'; version: string }
   | { status: 'downloading'; percent: number }
-  | { status: 'ready' };
+  | { status: 'ready' }
+  | { status: 'error'; message: string };
 
 export function UpdateButton() {
   const [state, setState] = useState<UpdateState>({ status: 'idle' });
@@ -87,28 +88,42 @@ export function UpdateButton() {
 
 /* ─── Settings: Check for Updates ─── */
 
-type CheckState = 'idle' | 'checking' | 'up-to-date' | 'error';
+type SettingsUpdateState =
+  | { status: 'idle' }
+  | { status: 'checking' }
+  | { status: 'up-to-date' }
+  | { status: 'available'; version: string }
+  | { status: 'downloading'; percent: number }
+  | { status: 'ready' }
+  | { status: 'error'; message: string };
 
 export function CheckForUpdatesButton() {
-  const [state, setState] = useState<CheckState>('idle');
+  const [state, setState] = useState<SettingsUpdateState>({ status: 'idle' });
   const timerRef = useRef<ReturnType<typeof setTimeout>>();
 
   useEffect(() => {
     const api = window.electronAPI;
 
     const unsubs = [
-      api.onUpdaterUpdateAvailable(() => {
-        setState('idle');
+      api.onUpdaterUpdateAvailable((data) => {
+        clearTimeout(timerRef.current);
+        setState({ status: 'available', version: data.version });
+      }),
+      api.onUpdaterDownloadProgress((data) => {
+        setState({ status: 'downloading', percent: data.percent });
+      }),
+      api.onUpdaterUpdateDownloaded(() => {
+        setState({ status: 'ready' });
       }),
       api.onUpdaterUpToDate(() => {
-        setState('up-to-date');
+        setState({ status: 'up-to-date' });
         clearTimeout(timerRef.current);
-        timerRef.current = setTimeout(() => setState('idle'), 4000);
+        timerRef.current = setTimeout(() => setState({ status: 'idle' }), 4000);
       }),
-      api.onUpdaterError(() => {
-        setState('error');
+      api.onUpdaterError((message) => {
+        setState({ status: 'error', message });
         clearTimeout(timerRef.current);
-        timerRef.current = setTimeout(() => setState('idle'), 4000);
+        timerRef.current = setTimeout(() => setState({ status: 'idle' }), 4000);
       }),
     ];
 
@@ -118,31 +133,87 @@ export function CheckForUpdatesButton() {
     };
   }, []);
 
-  const handleCheck = useCallback(() => {
-    setState('checking');
-    window.electronAPI.updaterCheck();
-  }, []);
+  const handleClick = useCallback(() => {
+    const api = window.electronAPI;
+    if (state.status === 'available') {
+      setState({ status: 'downloading', percent: 0 });
+      api.updaterDownload();
+    } else if (state.status === 'ready') {
+      api.updaterInstall();
+    } else if (state.status === 'idle' || state.status === 'error') {
+      setState({ status: 'checking' });
+      api.updaterCheck();
+    }
+  }, [state.status]);
 
-  const label =
-    state === 'checking' ? 'Checking…' :
-    state === 'up-to-date' ? 'Up to date' :
-    state === 'error' ? 'Check failed' :
+  if (state.status === 'up-to-date') {
+    return (
+      <span className="flex items-center gap-1.5 text-[11px] text-content-secondary">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="rgb(var(--color-success))" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M2 5.5 4 7.5l4-5" />
+        </svg>
+        Up to date
+      </span>
+    );
+  }
+
+  if (state.status === 'available') {
+    return (
+      <button
+        onClick={handleClick}
+        className="text-[11px] px-3 py-1.5 rounded-md border border-chrome/60 text-content-secondary hover:border-chrome-focus/60 hover:text-content-primary transition-all"
+        style={{ background: 'rgb(var(--color-warning) / 0.10)', borderColor: 'rgb(var(--color-warning) / 0.3)' }}
+      >
+        <span className="flex items-center gap-1.5" style={{ color: 'rgb(var(--color-warning))' }}>
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 1.5v5M3 4.5 5 6.5l2-2" />
+            <path d="M2 8h6" />
+          </svg>
+          Download v{state.version}
+        </span>
+      </button>
+    );
+  }
+
+  if (state.status === 'downloading') {
+    return (
+      <span className="flex items-center gap-1.5 text-[11px] text-content-secondary">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="animate-spin">
+          <path d="M5 1a4 4 0 0 1 4 4" />
+        </svg>
+        Downloading {Math.round(state.percent)}%
+      </span>
+    );
+  }
+
+  if (state.status === 'ready') {
+    return (
+      <button
+        onClick={handleClick}
+        className="text-[11px] px-3 py-1.5 rounded-md border transition-all"
+        style={{ background: 'rgb(var(--color-success) / 0.10)', borderColor: 'rgb(var(--color-success) / 0.3)', color: 'rgb(var(--color-success))' }}
+      >
+        <span className="flex items-center gap-1.5">
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M2 5.5 4 7.5l4-5" />
+          </svg>
+          Restart to Update
+        </span>
+      </button>
+    );
+  }
+
+  const label = state.status === 'checking' ? 'Checking…' :
+    state.status === 'error' ? 'Retry' :
     'Check for Updates';
 
   return (
     <button
-      onClick={handleCheck}
-      disabled={state === 'checking'}
+      onClick={handleClick}
+      disabled={state.status === 'checking'}
       className="text-[11px] px-3 py-1.5 rounded-md border border-chrome/60 bg-surface-tertiary/40 text-content-secondary hover:border-chrome-focus/60 hover:bg-surface-tertiary/80 hover:text-content-primary disabled:opacity-50 disabled:cursor-not-allowed transition-all"
     >
-      {state === 'up-to-date' ? (
-        <span className="flex items-center gap-1.5">
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="rgb(var(--color-success))" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M2 5.5 4 7.5l4-5" />
-          </svg>
-          {label}
-        </span>
-      ) : label}
+      {label}
     </button>
   );
 }

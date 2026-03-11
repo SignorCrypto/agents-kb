@@ -2,8 +2,16 @@ import { autoUpdater } from 'electron-updater';
 import { app, BrowserWindow, ipcMain } from 'electron';
 
 export function setupAutoUpdater(getMainWindow: () => BrowserWindow | null) {
-  // Only check for updates in packaged builds
-  if (!app.isPackaged) return;
+  // In dev builds, register no-op handlers so the renderer doesn't crash
+  if (!app.isPackaged) {
+    ipcMain.handle('updater:check', () => {
+      const win = getMainWindow();
+      if (win) win.webContents.send('updater:up-to-date');
+    });
+    ipcMain.handle('updater:download', () => {});
+    ipcMain.handle('updater:install', () => {});
+    return;
+  }
 
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;

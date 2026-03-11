@@ -139,6 +139,15 @@ export interface PhaseTokenUsage {
   outputTokens: number;
 }
 
+/* ─── Skills ─── */
+
+export interface Skill {
+  name: string;
+  description: string;
+  source: 'global' | 'project';
+  filePath: string;
+}
+
 /* ─── Kanban ─── */
 
 export type KanbanColumn = "planning" | "development" | "done";

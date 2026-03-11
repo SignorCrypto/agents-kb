@@ -77,6 +77,9 @@ const api: ElectronAPI = {
   // Skills
   skillsList: (projectId?) => ipcRenderer.invoke('skills:list', projectId),
 
+  // App
+  appGetVersion: () => ipcRenderer.invoke('app:get-version'),
+
   // Updater
   updaterCheck: () => ipcRenderer.invoke('updater:check'),
   updaterDownload: () => ipcRenderer.invoke('updater:download'),

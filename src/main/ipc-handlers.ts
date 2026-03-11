@@ -1,4 +1,4 @@
-import { ipcMain, dialog, BrowserWindow, nativeTheme, shell } from 'electron';
+import { app, ipcMain, dialog, BrowserWindow, nativeTheme, shell } from 'electron';
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import fs from 'fs';
@@ -1142,6 +1142,9 @@ function registerDemoHandlers(): void {
 }
 
 export function registerIpcHandlers(getWindow: WindowGetter): void {
+  // App version — always available
+  ipcMain.handle('app:get-version', () => app.getVersion());
+
   // --- Demo mode: register lightweight canned-data handlers and skip real registration ---
   if (isDemoMode()) {
     registerDemoHandlers();

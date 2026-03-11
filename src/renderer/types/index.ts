@@ -71,6 +71,9 @@ export interface ElectronAPI {
   // Skills
   skillsList: (projectId?: string) => Promise<Skill[]>;
 
+  // App
+  appGetVersion: () => Promise<string>;
+
   // Updater
   updaterCheck: () => Promise<void>;
   updaterDownload: () => Promise<void>;
