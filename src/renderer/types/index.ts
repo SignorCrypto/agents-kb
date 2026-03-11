@@ -68,6 +68,16 @@ export interface ElectronAPI {
   claudeMdInit: (projectId: string) => Promise<{ exists: boolean; content: string }>;
   claudeMdWrite: (projectId: string, content: string) => Promise<{ success: boolean }>;
 
+  // Updater
+  updaterCheck: () => Promise<void>;
+  updaterDownload: () => Promise<void>;
+  updaterInstall: () => Promise<void>;
+  onUpdaterUpdateAvailable: (callback: (data: { version: string; releaseNotes?: string }) => void) => () => void;
+  onUpdaterDownloadProgress: (callback: (data: { percent: number }) => void) => () => void;
+  onUpdaterUpdateDownloaded: (callback: () => void) => () => void;
+  onUpdaterUpToDate: (callback: () => void) => () => void;
+  onUpdaterError: (callback: (message: string) => void) => () => void;
+
   // Events (renderer listens)
   onJobStatusChanged: (callback: (job: Job) => void) => () => void;
   onJobOutputBatch: (callback: (data: { jobId: string; entries: OutputEntry[] }) => void) => () => void;

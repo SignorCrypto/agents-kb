@@ -9,6 +9,7 @@ Agents-KB does not build or provide the coding agents themselves. It gives you a
 - [Claude Code](https://code.claude.com/docs) is required to use the app
 - Claude Code is developed separately and is not built by us
 - Agents-KB is a companion GUI for coding agents, not a replacement for them
+- This app is not perfect, so expect bugs.
 
 ## What You Get
 
@@ -30,6 +31,14 @@ Agents-KB does not build or provide the coding agents themselves. It gives you a
 3. Add your project folder.
 4. Create jobs and manage your terminal-based agent sessions from the Kanban board.
 
+## Contributing
+
+It is my first open source project.
+
+If you like it and want to help, I really appreciate the interest. I will start accepting contributions once I figure out the best way to manage them. I will probably try to rely more on a concept I designed which are the prompt requests. You can read more about that idea here: [Prompt Requests](https://github.com/SignorCrypto/prompt-request).
+
+For the current contribution status, see [CONTRIBUTING.md](./CONTRIBUTING.md).
+
 ## License
 
-MIT
+MIT. See [LICENSE.md](./LICENSE.md).

@@ -2,6 +2,7 @@ node_modules/
 .vite/
 out/
 dist/
+release/
 *.js.map
 .DS_Store
 .cursor/

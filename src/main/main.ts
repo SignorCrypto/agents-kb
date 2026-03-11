@@ -6,6 +6,7 @@ console.log('[main] Starting Agents-KB...');
 import { registerIpcHandlers } from './ipc-handlers';
 import { sessionManager } from './session-manager';
 import { flushNow, getSettings } from './store';
+import { setupAutoUpdater } from './auto-updater';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -18,21 +19,23 @@ const createWindow = () => {
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 16, y: 16 },
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, '../preload/preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
     },
   });
 
   // Load the renderer
-  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
-    mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
+  if (process.env.ELECTRON_RENDERER_URL) {
+    mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
-    mainWindow.loadFile(path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`));
+    mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
 
   // Open DevTools in development
-  mainWindow.webContents.openDevTools({ mode: 'detach' });
+  if (!app.isPackaged) {
+    mainWindow.webContents.openDevTools({ mode: 'detach' });
+  }
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -48,6 +51,9 @@ app.whenReady().then(() => {
   nativeTheme.themeSource = settings.theme;
 
   createWindow();
+
+  // Set up auto-updater
+  setupAutoUpdater(() => mainWindow);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -66,7 +72,3 @@ app.on('before-quit', () => {
   flushNow();
   sessionManager.killAll();
 });
-
-// Vite HMR declarations
-declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string;
-declare const MAIN_WINDOW_VITE_NAME: string;

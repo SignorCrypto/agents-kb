@@ -1,0 +1,23 @@
+appId: com.sealo.agents-kb
+productName: Agents-KB
+directories:
+  output: release
+  buildResources: assets
+files:
+  - out/**/*
+asar: true
+asarUnpack:
+  - node_modules/node-pty/**
+mac:
+  category: public.app-category.developer-tools
+  icon: assets/icon.icns
+  target:
+    - dmg
+    - zip
+  entitlements: entitlements.plist
+  entitlementsInherit: entitlements.plist
+  notarize: true
+publish:
+  provider: github
+  owner: SignorCrypto
+  repo: agents-kb

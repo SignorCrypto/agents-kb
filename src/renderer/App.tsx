@@ -9,6 +9,7 @@ import { SettingsDialog } from './components/SettingsDialog';
 import { SetupScreen } from './components/SetupScreen';
 import { SplashScreen } from './components/SplashScreen';
 import { Kbd } from './components/Kbd';
+import { UpdateButton } from './components/UpdateButton';
 import { getProjectColor } from '../shared/types';
 
 function applyDarkClass(isDark: boolean) {
@@ -124,14 +125,16 @@ export default function App() {
               </span>
             )}
           </div>
-          <button
-            onClick={() => setShowNewJobDialog(true)}
-            disabled={projects.length === 0}
-            className="text-xs px-3 py-1 rounded-md bg-btn-primary text-content-inverted font-medium hover:bg-btn-primary-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-          >
-            + New Job<Kbd shortcutId="newJob" />
-          </button>
+          <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+            <UpdateButton />
+            <button
+              onClick={() => setShowNewJobDialog(true)}
+              disabled={projects.length === 0}
+              className="text-xs px-3 py-1 rounded-md bg-btn-primary text-content-inverted font-medium hover:bg-btn-primary-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              + New Job<Kbd shortcutId="newJob" />
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 flex min-h-0">

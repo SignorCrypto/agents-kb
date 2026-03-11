@@ -74,6 +74,36 @@ const api: ElectronAPI = {
   claudeMdInit: (projectId) => ipcRenderer.invoke('claudemd:init', projectId),
   claudeMdWrite: (projectId, content) => ipcRenderer.invoke('claudemd:write', projectId, content),
 
+  // Updater
+  updaterCheck: () => ipcRenderer.invoke('updater:check'),
+  updaterDownload: () => ipcRenderer.invoke('updater:download'),
+  updaterInstall: () => ipcRenderer.invoke('updater:install'),
+  onUpdaterUpdateAvailable: (callback) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { version: string; releaseNotes?: string }) => callback(data);
+    ipcRenderer.on('updater:update-available', handler);
+    return () => ipcRenderer.removeListener('updater:update-available', handler);
+  },
+  onUpdaterDownloadProgress: (callback) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { percent: number }) => callback(data);
+    ipcRenderer.on('updater:download-progress', handler);
+    return () => ipcRenderer.removeListener('updater:download-progress', handler);
+  },
+  onUpdaterUpdateDownloaded: (callback) => {
+    const handler = () => callback();
+    ipcRenderer.on('updater:update-downloaded', handler);
+    return () => ipcRenderer.removeListener('updater:update-downloaded', handler);
+  },
+  onUpdaterUpToDate: (callback) => {
+    const handler = () => callback();
+    ipcRenderer.on('updater:up-to-date', handler);
+    return () => ipcRenderer.removeListener('updater:up-to-date', handler);
+  },
+  onUpdaterError: (callback) => {
+    const handler = (_event: Electron.IpcRendererEvent, message: string) => callback(message);
+    ipcRenderer.on('updater:error', handler);
+    return () => ipcRenderer.removeListener('updater:error', handler);
+  },
+
   // Events
   onJobStatusChanged: (callback) => {
     const handler = (_event: Electron.IpcRendererEvent, data: Parameters<typeof callback>[0]) => callback(data);

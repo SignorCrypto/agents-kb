@@ -4,6 +4,7 @@ import { useKanbanStore } from '../hooks/useKanbanStore';
 import { useElectronAPI } from '../hooks/useElectronAPI';
 import { KbdRaw } from './Kbd';
 import { SegmentedPicker } from './SegmentedPicker';
+import { CheckForUpdatesButton } from './UpdateButton';
 import type { AppSettings, ShortcutBinding, ThemeMode, PreferredEditor, PermissionMode } from '../types/index';
 import { DEFAULT_SETTINGS, MODEL_CATALOG, EFFORT_CATALOG } from '../types/index';
 
@@ -337,6 +338,25 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                 onCancelRecording={() => setRecordingId(null)}
               />
             ))}
+          </div>
+
+          <div className="border-t border-chrome-subtle/40" />
+
+          {/* About */}
+          <div>
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-content-tertiary">
+              About
+            </span>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-[13px] text-content-primary">Updates</div>
+              <div className="text-[11px] text-content-tertiary mt-0.5">
+                Check for new versions on GitHub
+              </div>
+            </div>
+            <CheckForUpdatesButton />
           </div>
 
           <div className="border-t border-chrome-subtle/40" />
