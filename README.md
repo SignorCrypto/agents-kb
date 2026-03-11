@@ -31,9 +31,13 @@ Agents-KB does not build or provide the coding agents themselves. It gives you a
 ## Getting Started
 
 1. Install and authenticate [Claude Code](https://code.claude.com/docs).
-2. Download and open Agents-KB.
-3. Add your project folder.
-4. Create jobs and manage your terminal-based agent sessions from the Kanban board.
+2. Download the latest Agents-KB release from the [GitHub Releases page](https://github.com/SignorCrypto/agents-kb/releases).
+3. Install the app for your platform:
+   - macOS: download the `.dmg`, open it, and drag Agents-KB into `Applications`
+   - Windows: not available yet (sorry).
+4. Open Agents-KB.
+5. Add your project folder.
+6. Create jobs and manage your terminal-based agent sessions from the Kanban board.
 
 ## Contributing
 
