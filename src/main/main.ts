@@ -1,5 +1,9 @@
 import { app, BrowserWindow, nativeTheme } from 'electron';
 import path from 'path';
+import { fixPath } from './fix-path';
+
+// Fix PATH for packaged macOS apps before any CLI invocations
+fixPath();
 
 console.log('[main] Starting Agents-KB...');
 
