@@ -5,8 +5,8 @@ import { useElectronAPI } from '../hooks/useElectronAPI';
 import { KbdRaw } from './Kbd';
 import { SegmentedPicker } from './SegmentedPicker';
 import { CheckForUpdatesButton } from './UpdateButton';
-import type { AppSettings, ShortcutBinding, ThemeMode, PreferredEditor, PermissionMode } from '../types/index';
-import { DEFAULT_SETTINGS, MODEL_CATALOG, EFFORT_CATALOG } from '../types/index';
+import type { AppSettings, ShortcutBinding, ThemeMode, PreferredEditor } from '../types/index';
+import { DEFAULT_SETTINGS, MODEL_CATALOG, EFFORT_CATALOG, PERMISSION_MODE_CATALOG } from '../types/index';
 import { XIcon } from './Icons';
 
 const isMac =
@@ -41,19 +41,40 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const [recordingId, setRecordingId] = useState<string | null>(null);
   const [appVersion, setAppVersion] = useState<string>('');
   const dialogRef = useRef<HTMLDivElement>(null);
+  const localRef = useRef(local);
+  const saveQueueRef = useRef(Promise.resolve());
 
   useEffect(() => {
-    window.electronAPI.appGetVersion().then(setAppVersion).catch(() => {});
+    localRef.current = local;
+  }, [local]);
+
+  useEffect(() => {
+    window.electronAPI.appGetVersion().then(setAppVersion).catch(() => { });
   }, []);
 
   // Persist changes
-  const save = useCallback(
-    async (next: AppSettings) => {
+  const persistSettings = useCallback(
+    (next: AppSettings) => {
+      localRef.current = next;
       setLocal(next);
       setSettings(next);
-      await api.settingsUpdate(next);
+      saveQueueRef.current = saveQueueRef.current
+        .catch(() => undefined)
+        .then(() => api.settingsUpdate(next))
+        .then(() => undefined);
     },
     [api, setSettings],
+  );
+
+  const patchSettings = useCallback(
+    (updater: Partial<AppSettings> | ((current: AppSettings) => AppSettings)) => {
+      const current = localRef.current;
+      const next = typeof updater === 'function'
+        ? updater(current)
+        : { ...current, ...updater };
+      persistSettings(next);
+    },
+    [persistSettings],
   );
 
   // Escape to close (or cancel recording)
@@ -83,36 +104,35 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
       const keys = eventToKeys(e);
       if (!keys) return;
 
-      const next = {
-        ...local,
-        shortcuts: local.shortcuts.map((s) =>
+      patchSettings((current) => ({
+        ...current,
+        shortcuts: current.shortcuts.map((s) =>
           s.id === recordingId ? { ...s, keys } : s,
         ),
-      };
-      save(next);
+      }));
       setRecordingId(null);
     };
 
     window.addEventListener('keydown', handler, true);
     return () => window.removeEventListener('keydown', handler, true);
-  }, [recordingId, local, save]);
+  }, [patchSettings, recordingId]);
 
   const toggleHints = () => {
-    save({ ...local, showShortcutHints: !local.showShortcutHints });
+    patchSettings((current) => ({ ...current, showShortcutHints: !current.showShortcutHints }));
   };
 
   const toggleShortcut = (id: string) => {
-    save({
-      ...local,
-      shortcuts: local.shortcuts.map((s) =>
+    patchSettings((current) => ({
+      ...current,
+      shortcuts: current.shortcuts.map((s) =>
         s.id === id ? { ...s, enabled: !s.enabled } : s,
       ),
-    });
+    }));
   };
 
   const resetDefaults = () => {
     const fresh = structuredClone(DEFAULT_SETTINGS);
-    save(fresh);
+    persistSettings(fresh);
     setRecordingId(null);
   };
 
@@ -164,7 +184,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             <SegmentedPicker
               options={THEME_OPTIONS}
               value={local.theme}
-              onChange={(theme) => save({ ...local, theme })}
+              onChange={(theme) => patchSettings({ theme })}
             />
           </div>
 
@@ -178,7 +198,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             <SegmentedPicker
               options={EDITOR_OPTIONS}
               value={local.preferredEditor ?? 'auto'}
-              onChange={(preferredEditor) => save({ ...local, preferredEditor })}
+              onChange={(preferredEditor) => patchSettings({ preferredEditor })}
             />
           </div>
 
@@ -189,7 +209,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                 Show system notifications for job events
               </div>
             </div>
-            <Toggle checked={local.notificationsEnabled} onChange={() => save({ ...local, notificationsEnabled: !local.notificationsEnabled })} />
+            <Toggle checked={local.notificationsEnabled} onChange={() => patchSettings((current) => ({ ...current, notificationsEnabled: !current.notificationsEnabled }))} />
           </div>
 
           <div className="border-t border-chrome-subtle/40" />
@@ -209,23 +229,23 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             </div>
             <Toggle
               checked={local.deleteCompletedJobsOnCommit}
-              onChange={() => save({ ...local, deleteCompletedJobsOnCommit: !local.deleteCompletedJobsOnCommit })}
+              onChange={() => patchSettings((current) => ({ ...current, deleteCompletedJobsOnCommit: !current.deleteCompletedJobsOnCommit }))}
             />
           </div>
 
           <CommitPromptEditor
             value={local.promptConfigs.commit.prompt}
             onChange={(prompt) => {
-              save({
-                ...local,
+              patchSettings((current) => ({
+                ...current,
                 promptConfigs: {
-                  ...local.promptConfigs,
+                  ...current.promptConfigs,
                   commit: {
-                    ...local.promptConfigs.commit,
+                    ...current.promptConfigs.commit,
                     prompt,
                   },
                 },
-              });
+              }));
             }}
           />
 
@@ -248,7 +268,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             <SegmentedPicker
               options={MODEL_CATALOG}
               value={local.defaultModel}
-              onChange={(defaultModel) => save({ ...local, defaultModel })}
+              onChange={(defaultModel) => patchSettings({ defaultModel })}
             />
           </div>
 
@@ -262,7 +282,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             <SegmentedPicker
               options={EFFORT_CATALOG}
               value={local.defaultEffort}
-              onChange={(defaultEffort) => save({ ...local, defaultEffort })}
+              onChange={(defaultEffort) => patchSettings({ defaultEffort })}
             />
           </div>
 
@@ -273,7 +293,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                 Display badges on cards even when using defaults
               </div>
             </div>
-            <Toggle checked={local.alwaysShowModelEffort} onChange={() => save({ ...local, alwaysShowModelEffort: !local.alwaysShowModelEffort })} />
+            <Toggle checked={local.alwaysShowModelEffort} onChange={() => patchSettings((current) => ({ ...current, alwaysShowModelEffort: !current.alwaysShowModelEffort }))} />
           </div>
 
           <div className="flex items-center justify-between">
@@ -283,7 +303,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                 Display token counts per phase in job details
               </div>
             </div>
-            <Toggle checked={local.showTokenUsage} onChange={() => save({ ...local, showTokenUsage: !local.showTokenUsage })} />
+            <Toggle checked={local.showTokenUsage} onChange={() => patchSettings((current) => ({ ...current, showTokenUsage: !current.showTokenUsage }))} />
           </div>
 
           <div className="flex items-center justify-between">
@@ -293,7 +313,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                 Display model and effort pickers when creating a job
               </div>
             </div>
-            <Toggle checked={local.showModelEffortInNewJob} onChange={() => save({ ...local, showModelEffortInNewJob: !local.showModelEffortInNewJob })} />
+            <Toggle checked={local.showModelEffortInNewJob} onChange={() => patchSettings((current) => ({ ...current, showModelEffortInNewJob: !current.showModelEffortInNewJob }))} />
           </div>
 
           <div className="space-y-2">
@@ -301,34 +321,24 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
               <div>
                 <div className="text-[13px] text-content-primary">Permission Mode</div>
                 <div className="text-[11px] text-content-tertiary mt-0.5">
-                  How Claude handles permissions during development
+                  How Claude handles permissions during sessions
                 </div>
               </div>
               <SegmentedPicker
-                options={PERMISSION_OPTIONS}
+                options={PERMISSION_MODE_CATALOG}
                 value={local.permissionMode}
-                onChange={(permissionMode) => save({ ...local, permissionMode })}
+                onChange={(permissionMode) => patchSettings({ permissionMode })}
               />
             </div>
-            <div className="rounded-md bg-chrome-subtle/30 px-3 py-2 text-[11px] text-content-tertiary leading-relaxed">
-              {local.permissionMode === 'default' ? (
-                <>
-                  <span className="text-content-secondary font-medium">Default</span> — Claude can read files, search, and edit/write files.
-                  Bash and other system tools require explicit approval.
-                  <span className="mt-1 block text-[10px] text-content-quaternary">
-                    Allowed: Read, Glob, Grep, Edit, Write, NotebookEdit
-                  </span>
-                </>
-              ) : (
-                <>
-                  <span className="text-content-secondary font-medium">Skip All</span> — All permission checks are bypassed.
-                  Claude can run any tool including Bash without asking.
-                  <span className="mt-1 block text-[10px] text-content-quaternary">
-                    Only use in trusted environments with no internet access.
-                  </span>
-                </>
-              )}
-            </div>
+            {(() => {
+              const selected = PERMISSION_MODE_CATALOG.find((m) => m.value === local.permissionMode);
+              return selected ? (
+                <div className="rounded-md bg-chrome-subtle/30 px-3 py-2 text-[11px] text-content-tertiary leading-relaxed">
+                  <span className="text-content-secondary font-medium">{selected.label}</span> — {selected.description}
+                </div>
+              ) : null;
+            })()}
+
           </div>
 
           <div className="border-t border-chrome-subtle/40" />
@@ -422,14 +432,12 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: () => void 
       role="switch"
       aria-checked={checked}
       onClick={onChange}
-      className={`relative w-8 h-[18px] rounded-full transition-colors shrink-0 ${
-        checked ? 'bg-btn-primary' : 'bg-chrome/40'
-      }`}
+      className={`relative w-8 h-[18px] rounded-full transition-colors shrink-0 ${checked ? 'bg-btn-primary' : 'bg-chrome/40'
+        }`}
     >
       <div
-        className={`absolute top-[2px] h-[14px] w-[14px] rounded-full bg-white shadow transition-transform ${
-          checked ? 'translate-x-[14px] left-[2px]' : 'left-[2px]'
-        }`}
+        className={`absolute top-[2px] h-[14px] w-[14px] rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-[14px] left-[2px]' : 'left-[2px]'
+          }`}
       />
     </button>
   );
@@ -476,11 +484,6 @@ const EDITOR_OPTIONS: { value: PreferredEditor; label: string }[] = [
   { value: 'vscode', label: 'VS Code' },
 ];
 
-const PERMISSION_OPTIONS: { value: PermissionMode; label: string }[] = [
-  { value: 'skip', label: 'Skip All' },
-  { value: 'default', label: 'Default' },
-];
-
 
 /* ─── Shortcut Row ─── */
 
@@ -499,20 +502,18 @@ function ShortcutRow({
 }) {
   return (
     <div
-      className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
-        isRecording
+      className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${isRecording
           ? 'bg-focus-ring/8 ring-1 ring-focus-ring/30'
           : 'hover:bg-surface-tertiary/40'
-      }`}
+        }`}
     >
       {/* Toggle */}
       <Toggle checked={shortcut.enabled} onChange={onToggle} />
 
       {/* Label */}
       <span
-        className={`flex-1 text-[13px] transition-colors ${
-          shortcut.enabled ? 'text-content-primary' : 'text-content-tertiary'
-        }`}
+        className={`flex-1 text-[13px] transition-colors ${shortcut.enabled ? 'text-content-primary' : 'text-content-tertiary'
+          }`}
       >
         {shortcut.label}
       </span>
@@ -531,11 +532,10 @@ function ShortcutRow({
         <button
           onClick={onStartRecording}
           disabled={!shortcut.enabled}
-          className={`group relative px-2.5 py-1 rounded-md border min-w-[72px] flex items-center justify-center transition-all ${
-            shortcut.enabled
+          className={`group relative px-2.5 py-1 rounded-md border min-w-[72px] flex items-center justify-center transition-all ${shortcut.enabled
               ? 'border-chrome/60 bg-surface-tertiary/40 hover:border-chrome-focus/60 hover:bg-surface-tertiary/80 cursor-pointer'
               : 'border-chrome/30 bg-surface-tertiary/20 opacity-40 cursor-not-allowed'
-          }`}
+            }`}
           title={shortcut.enabled ? 'Click to rebind' : ''}
         >
           <KbdRaw keys={shortcut.keys} />

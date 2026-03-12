@@ -73,7 +73,49 @@ export interface ShortcutBinding {
 }
 
 export type PreferredEditor = 'auto' | 'cursor' | 'vscode';
-export type PermissionMode = 'skip' | 'default';
+export type PermissionMode = 'bypassPermissions' | 'default';
+
+export interface PermissionModeOption {
+  value: PermissionMode;
+  label: string;
+  description: string;
+}
+
+export const PERMISSION_MODE_CATALOG: PermissionModeOption[] = [
+  { value: 'bypassPermissions', label: 'Skip All', description: 'All permission checks bypassed (--dangerously-skip-permissions)' },
+  { value: 'default',           label: 'Default',  description: 'Claude will ask for permission when needed' },
+];
+
+/* ─── Claude Tool Catalog ─── */
+// All Claude CLI tools that can be toggled in --allowedTools.
+// Read-only tools (Read, Glob, Grep) are always auto-allowed by the CLI.
+
+export interface ClaudeToolOption {
+  /** Tool name as passed to --allowedTools */
+  name: string;
+  /** Display label */
+  label: string;
+  /** Short description for the UI */
+  description: string;
+  /** Whether this tool is allowed by default */
+  defaultAllowed: boolean;
+}
+
+export const CLAUDE_TOOL_CATALOG: ClaudeToolOption[] = [
+  { name: 'Edit',             label: 'Edit',             description: 'Modify existing files',                defaultAllowed: true },
+  { name: 'Write',            label: 'Write',            description: 'Create new files',                     defaultAllowed: true },
+  { name: 'NotebookEdit',     label: 'NotebookEdit',     description: 'Edit Jupyter notebooks',               defaultAllowed: true },
+  { name: 'Bash',             label: 'Bash',             description: 'Run shell commands',                   defaultAllowed: true },
+  { name: 'AskUserQuestion',  label: 'AskUserQuestion',  description: 'Ask questions to the user',            defaultAllowed: true },
+  { name: 'Agent',            label: 'Agent',            description: 'Spawn subagents for parallel tasks',   defaultAllowed: true },
+  { name: 'TodoWrite',        label: 'TodoWrite',        description: 'Internal task tracking',               defaultAllowed: true },
+  { name: 'WebFetch',         label: 'WebFetch',         description: 'Fetch content from URLs',              defaultAllowed: true },
+  { name: 'WebSearch',        label: 'WebSearch',        description: 'Search the web',                       defaultAllowed: true },
+];
+
+export const DEFAULT_ALLOWED_TOOLS: Record<string, boolean> = Object.fromEntries(
+  CLAUDE_TOOL_CATALOG.map((t) => [t.name, t.defaultAllowed]),
+);
 
 export interface AppSettings {
   theme: ThemeMode;
@@ -129,7 +171,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   preferredEditor: "auto",
   notificationsEnabled: true,
   deleteCompletedJobsOnCommit: true,
-  permissionMode: 'default',
+  permissionMode: 'bypassPermissions',
 };
 
 /* ─── Token Usage ─── */

@@ -11,6 +11,7 @@ interface Section {
   content: string;
   toolName?: string;
   toolResult?: string;
+  isStreaming?: boolean;
   timestamp: string;
 }
 
@@ -25,7 +26,58 @@ function tryParseToolJson(content: string): Record<string, unknown> | null {
       return JSON.parse(trimmed.slice(jsonStart));
     } catch { /* not parseable */ }
   }
+  const keyStart = trimmed.search(/"[A-Za-z0-9_-]+"\s*:/);
+  if (keyStart >= 0) {
+    const jsonBody = trimmed.slice(keyStart).replace(/,\s*$/, '');
+    try {
+      return JSON.parse(`{${jsonBody}`);
+    } catch { /* not parseable */ }
+    try {
+      return JSON.parse(`{${jsonBody}}`);
+    } catch { /* not parseable */ }
+  }
   return null;
+}
+
+function extractJsonStringField(content: string, key: string): string | undefined {
+  const match = content.match(new RegExp(`"${key}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`, 's'));
+  if (!match) return undefined;
+
+  try {
+    return JSON.parse(`"${match[1]}"`) as string;
+  } catch {
+    return match[1];
+  }
+}
+
+function inferToolName(parsed: Record<string, unknown> | null, content: string): string | undefined {
+  if (parsed) {
+    if (parsed.command) return 'Bash';
+    if (parsed.todos) return 'TodoWrite';
+    if (parsed.url) return 'WebFetch';
+    if (parsed.query) return 'WebSearch';
+    if (parsed.prompt) return 'Agent';
+    if (parsed.notebook_path) return 'NotebookEdit';
+    if (parsed.old_string !== undefined) return 'Edit';
+    if (parsed.file_path && parsed.content !== undefined) return 'Write';
+    if (parsed.file_path) return 'Read';
+    if (parsed.pattern && parsed.path) return 'Grep';
+    if (parsed.pattern) return 'Glob';
+  }
+
+  if (/"command"\s*:/.test(content)) return 'Bash';
+  if (/"todos"\s*:/.test(content)) return 'TodoWrite';
+  if (/"url"\s*:/.test(content)) return 'WebFetch';
+  if (/"query"\s*:/.test(content)) return 'WebSearch';
+  if (/"prompt"\s*:/.test(content)) return 'Agent';
+  if (/"notebook_path"\s*:/.test(content)) return 'NotebookEdit';
+  if (/"old_string"\s*:/.test(content)) return 'Edit';
+  if (/"file_path"\s*:/.test(content) && /"content"\s*:/.test(content)) return 'Write';
+  if (/"file_path"\s*:/.test(content)) return 'Read';
+  if (/"pattern"\s*:/.test(content) && /"path"\s*:/.test(content)) return 'Grep';
+  if (/"pattern"\s*:/.test(content)) return 'Glob';
+
+  return undefined;
 }
 
 function buildSections(entries: OutputEntry[]): Section[] {
@@ -33,32 +85,39 @@ function buildSections(entries: OutputEntry[]): Section[] {
 
   for (const entry of entries) {
     const last = sections[sections.length - 1];
+    if (last?.kind === 'tool' && entry.type !== 'tool-use' && last.isStreaming) {
+      last.isStreaming = false;
+    }
 
     if (entry.type === 'plan') {
       sections.push({ kind: 'plan', content: entry.content, timestamp: entry.timestamp });
     } else if (entry.type === 'tool-use') {
       if (entry.toolName && entry.content === '') {
         // content_block_start marker — start new tool section
-        sections.push({ kind: 'tool', content: '', toolName: entry.toolName, timestamp: entry.timestamp });
+        sections.push({ kind: 'tool', content: '', toolName: entry.toolName, isStreaming: true, timestamp: entry.timestamp });
       } else if (last?.kind === 'tool' && !entry.toolName) {
         // Delta without toolName — append to current tool section
         last.content += entry.content;
+        last.isStreaming = true;
       } else if (last?.kind === 'tool' && entry.toolName && entry.toolName === last.toolName) {
         // Delta with same toolName — append to current tool section (old logs)
         last.content += entry.content;
+        last.isStreaming = true;
       } else if (entry.toolName && entry.content) {
         // Full tool-use with name and content — new section
-        sections.push({ kind: 'tool', content: entry.content, toolName: entry.toolName, timestamp: entry.timestamp });
+        sections.push({ kind: 'tool', content: entry.content, toolName: entry.toolName, isStreaming: true, timestamp: entry.timestamp });
       } else if (last?.kind === 'tool') {
         // Fallback: append to current tool
         last.content += entry.content;
+        last.isStreaming = true;
       } else {
-        sections.push({ kind: 'tool', content: entry.content, timestamp: entry.timestamp });
+        sections.push({ kind: 'tool', content: entry.content, isStreaming: true, timestamp: entry.timestamp });
       }
     } else if (entry.type === 'tool-result') {
       // Append result to last tool section as separate field
       if (last?.kind === 'tool') {
         last.toolResult = (last.toolResult ? last.toolResult + '\n' : '') + entry.content;
+        last.isStreaming = false;
       } else {
         sections.push({ kind: 'system', content: entry.content, timestamp: entry.timestamp });
       }
@@ -117,14 +176,35 @@ function buildSections(entries: OutputEntry[]): Section[] {
 function parseToolInput(content: string): {
   parsed: Record<string, unknown> | null;
   summary: string;
+  inferredToolName?: string;
 } {
   const trimmed = content.trim();
   if (!trimmed) return { parsed: null, summary: '' };
 
   const parsed = tryParseToolJson(trimmed);
+  const inferredToolName = inferToolName(parsed, trimmed);
   if (!parsed) {
-    // Not valid JSON — show first meaningful line
-    return { parsed: null, summary: trimmed.split('\n')[0].slice(0, 100) };
+    const fallbackSummary = (
+      extractJsonStringField(trimmed, 'command')
+      ?? extractJsonStringField(trimmed, 'file_path')
+      ?? extractJsonStringField(trimmed, 'pattern')
+      ?? extractJsonStringField(trimmed, 'query')
+      ?? extractJsonStringField(trimmed, 'path')
+      ?? extractJsonStringField(trimmed, 'url')
+      ?? extractJsonStringField(trimmed, 'prompt')
+      ?? extractJsonStringField(trimmed, 'regex')
+    );
+
+    if (fallbackSummary) {
+      return { parsed: null, summary: fallbackSummary.slice(0, 100), inferredToolName };
+    }
+
+    const firstLine = trimmed
+      .split('\n')
+      .find((line) => line.trim())
+      ?.replace(/^[\s,{[]+/, '')
+      .slice(0, 100) ?? '';
+    return { parsed: null, summary: firstLine, inferredToolName };
   }
 
   // Extract a short summary from common tool patterns
@@ -140,7 +220,7 @@ function parseToolInput(content: string): {
   else if (parsed.old_string) summary = 'edit';
   else if (parsed.content && parsed.file_path) summary = String(parsed.file_path);
 
-  return { parsed, summary };
+  return { parsed, summary, inferredToolName };
 }
 
 /** Format parsed JSON as readable key-value lines for tool input display */
@@ -166,7 +246,7 @@ function ToolSection({ section }: { section: Section }) {
   const [expanded, setExpanded] = useState(false);
   const [resultExpanded, setResultExpanded] = useState(false);
 
-  const { parsed, summary } = useMemo(() => parseToolInput(section.content), [section.content]);
+  const { parsed, summary, inferredToolName } = useMemo(() => parseToolInput(section.content), [section.content]);
   const params = useMemo(() => parsed ? formatToolParams(parsed) : null, [parsed]);
   const hasResult = !!section.toolResult?.trim();
   const resultPreview = useMemo(() => {
@@ -178,6 +258,8 @@ function ToolSection({ section }: { section: Section }) {
   }, [section.toolResult, hasResult]);
 
   const displaySummary = summary ? shortenPath(summary) : '';
+  const toolLabel = section.toolName || inferredToolName || 'Tool';
+  const showInput = expanded || !!section.isStreaming;
 
   return (
     <div className="my-1 rounded border border-terminal-border overflow-hidden">
@@ -186,17 +268,23 @@ function ToolSection({ section }: { section: Section }) {
         onClick={() => setExpanded(!expanded)}
         className="w-full flex items-center gap-2 px-2 py-1.5 text-left hover:bg-terminal-hover/50 transition-colors"
       >
-        <span className="text-tool-icon text-[10px] shrink-0">{expanded ? '▼' : '▶'}</span>
+        <span className="text-tool-icon text-[10px] shrink-0">{showInput ? '▼' : '▶'}</span>
         <span className="text-tool-label font-semibold text-[11px] shrink-0">
-          {section.toolName || 'Tool'}
+          {toolLabel}
         </span>
         {displaySummary && (
           <span className="text-terminal-text-muted text-[10px] truncate font-mono">{displaySummary}</span>
         )}
+        {section.isStreaming && (
+          <span
+            className="ml-auto h-2 w-2 shrink-0 rounded-full border border-tool-label/40 border-t-tool-label animate-spin"
+            aria-label={`${toolLabel} is running`}
+          />
+        )}
       </button>
 
       {/* Expanded tool input */}
-      {expanded && (
+      {showInput && (
         <div className="border-t border-terminal-border bg-terminal-surface/50">
           {params && params.length > 0 ? (
             <div className="px-3 py-2 space-y-1">

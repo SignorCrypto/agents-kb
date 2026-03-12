@@ -17,8 +17,6 @@ export interface ClaudeSessionOptions {
   model?: string;
   effort?: string;
   permissionMode?: PermissionMode;
-  /** Extra tools to pre-approve via --allowedTools */
-  allowedTools?: string[];
 }
 
 export class ClaudeSession extends EventEmitter {
@@ -35,6 +33,8 @@ export class ClaudeSession extends EventEmitter {
   private isAskingQuestion = false;
   private pendingPlanFileRead = '';
   private permissionDeniedEmitted = false;
+  /** Tools handled internally via streaming events — never treat as permission denials */
+  private static readonly INTERNAL_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode']);
   private toolUseIdToName = new Map<string, string>();
   private _inputTokens = 0;
   private _outputTokens = 0;
@@ -68,16 +68,13 @@ export class ClaudeSession extends EventEmitter {
       args.push('--model', this.options.model);
     }
 
-    if (this.options.permissionMode === 'default') {
-      args.push('--permission-mode', 'default');
-      // In print mode, --permission-mode default auto-denies tools without prompting.
-      // Pre-approve common file-operation tools so Claude can work on the project.
-      const defaultAllowed = ['Edit', 'Write', 'NotebookEdit'];
-      const extra = this.options.allowedTools || [];
-      const merged = [...new Set([...defaultAllowed, ...extra])];
-      args.push('--allowedTools', ...merged);
-    } else {
+    const permissionMode: PermissionMode = this.options.permissionMode ?? 'bypassPermissions';
+
+    if (permissionMode === 'bypassPermissions') {
       args.push('--dangerously-skip-permissions');
+    } else {
+      // Pre-allow tools we handle internally via streaming events
+      args.push('--allowedTools', [...ClaudeSession.INTERNAL_TOOLS].join(','));
     }
 
     if (this.options.sessionId) {
@@ -88,6 +85,12 @@ export class ClaudeSession extends EventEmitter {
     const env = { ...process.env };
     delete env.CLAUDECODE;
 
+    console.log('[claude-session] Launch config:', {
+      phase: this.options.phase,
+      resume: Boolean(this.options.sessionId),
+      permissionMode,
+      skipPermissions: permissionMode === 'bypassPermissions',
+    });
     console.log('[claude-session] Spawning via PTY:', 'claude', args.join(' '));
     console.log('[claude-session] CWD:', this.options.projectPath);
 
@@ -104,9 +107,11 @@ export class ClaudeSession extends EventEmitter {
     this.pty.onData((data: string) => {
       // Strip ANSI escape codes and carriage returns from PTY output
       const cleaned = data
-        .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')  // ANSI escape sequences
-        .replace(/\x1b\][^\x07]*\x07/g, '')       // OSC sequences
-        .replace(/\x1b[^[]\S/g, '')               // Other escape sequences
+        .replace(/\x1b\[[0-9;?]*[a-zA-Z~]/g, '') // CSI sequences (incl. private-mode like ?2004h)
+        .replace(/\x1b\](?:[^\x07\x1b]*)\x07/g, '')      // OSC sequences (BEL terminated)
+        .replace(/\x1b\](?:[^\x07\x1b]*)\x1b\\/g, '')    // OSC sequences (ST terminated)
+        .replace(/\x1b[()#][A-Za-z0-9]/g, '')    // Charset selection (e.g. \x1b(B)
+        .replace(/\x1b[^[\]()#]/g, '')            // Other 2-char escape sequences
         .replace(/\r/g, '');                       // Carriage returns
 
       if (cleaned) {
@@ -158,21 +163,40 @@ export class ClaudeSession extends EventEmitter {
         continue;
       }
 
+      let parsed = false;
       try {
         const msg = JSON.parse(trimmed);
+        parsed = true;
         this.emit('raw-message', {
           timestamp: new Date().toISOString(),
           json: msg,
         });
         this.handleMessage(msg);
       } catch {
-        // Non-JSON output — could be error text or other CLI output
-        console.log('[claude-session] Non-JSON line:', trimmed.slice(0, 200));
-        this.emit('output', {
-          timestamp: new Date().toISOString(),
-          type: 'text',
-          content: trimmed,
-        } satisfies OutputEntry);
+        // If it looks like JSON, try stripping any remaining control characters
+        if (!parsed && trimmed.startsWith('{')) {
+          try {
+            // eslint-disable-next-line no-control-regex
+            const sanitized = trimmed.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
+            const msg = JSON.parse(sanitized);
+            parsed = true;
+            this.emit('raw-message', {
+              timestamp: new Date().toISOString(),
+              json: msg,
+            });
+            this.handleMessage(msg);
+          } catch {
+            // Still not parseable
+          }
+        }
+        if (!parsed) {
+          console.log('[claude-session] Non-JSON line:', trimmed.slice(0, 200));
+          this.emit('output', {
+            timestamp: new Date().toISOString(),
+            type: 'text',
+            content: trimmed,
+          } satisfies OutputEntry);
+        }
       }
     }
   }
@@ -206,12 +230,15 @@ export class ClaudeSession extends EventEmitter {
         // Fallback: detect permission denials from the result's permission_denials array
         const permDenials = msg.permission_denials as Array<{ tool_name?: string }> | undefined;
         if (Array.isArray(permDenials) && permDenials.length > 0 && !this.permissionDeniedEmitted) {
-          this.permissionDeniedEmitted = true;
           const toolNames = permDenials.map(d => d.tool_name).filter(Boolean) as string[];
-          const unique = [...new Set(toolNames)];
-          const message = `Claude needs permission to use: ${unique.join(', ')}`;
-          console.log('[claude-session] Permission denied (from result):', message);
-          this.emit('permission-denied', { message, deniedTools: unique });
+          // Filter out tools we handle internally via streaming events
+          const unique = [...new Set(toolNames)].filter(t => !ClaudeSession.INTERNAL_TOOLS.has(t));
+          if (unique.length > 0) {
+            this.permissionDeniedEmitted = true;
+            const message = `Claude needs permission to use: ${unique.join(', ')}`;
+            console.log('[claude-session] Permission denied (from result):', message);
+            this.emit('permission-denied', { message, deniedTools: unique });
+          }
         }
 
         const subtype = msg.subtype as string;
@@ -303,9 +330,9 @@ export class ClaudeSession extends EventEmitter {
         }
 
         // Detect permission denial from top-level tool_use_result field
-        const toolUseResult = msg.tool_use_result as string | undefined;
+        const rawToolUseResult = msg.tool_use_result;
+        const toolUseResult = typeof rawToolUseResult === 'string' ? rawToolUseResult : undefined;
         if (toolUseResult && !this.permissionDeniedEmitted && toolUseResult.includes('Claude requested permissions to')) {
-          this.permissionDeniedEmitted = true;
           // Resolve the denied tool name from the tool_use_id → name map
           const userMsg = msg.message as Record<string, unknown> | undefined;
           const blocks = userMsg?.content as Array<Record<string, unknown>> | undefined;
@@ -314,15 +341,19 @@ export class ClaudeSession extends EventEmitter {
             for (const b of blocks) {
               if (b.type === 'tool_result' && b.tool_use_id) {
                 const name = this.toolUseIdToName.get(b.tool_use_id as string);
-                if (name) deniedTools.add(name);
+                // Filter out tools we handle internally via streaming events
+                if (name && !ClaudeSession.INTERNAL_TOOLS.has(name)) deniedTools.add(name);
               }
             }
           }
-          console.log('[claude-session] Permission denied:', toolUseResult, 'tools:', [...deniedTools]);
-          this.emit('permission-denied', {
-            message: toolUseResult.replace(/^Error:\s*/, ''),
-            deniedTools: [...deniedTools],
-          });
+          if (deniedTools.size > 0) {
+            this.permissionDeniedEmitted = true;
+            console.log('[claude-session] Permission denied:', toolUseResult, 'tools:', [...deniedTools]);
+            this.emit('permission-denied', {
+              message: toolUseResult.replace(/^Error:\s*/, ''),
+              deniedTools: [...deniedTools],
+            });
+          }
         }
 
         // Tool results come back as user messages containing tool_result content blocks
@@ -512,6 +543,8 @@ export class ClaudeSession extends EventEmitter {
               timestamp: new Date().toISOString(),
             } satisfies PendingQuestion);
           }
+          // Signal that the session should be paused — the CLI won't wait for user input
+          this.emit('user-question');
           this.isAskingQuestion = false;
         }
 

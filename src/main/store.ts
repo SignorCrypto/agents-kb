@@ -42,6 +42,24 @@ for (const j of normalizedJobs) {
 const outputLogs = new Map<string, OutputEntry[]>();
 const rawMessageLogs = new Map<string, RawMessage[]>();
 
+function shouldMergeOutputEntry(last: OutputEntry | undefined, next: OutputEntry): boolean {
+  if (!last) return false;
+
+  if (next.type === 'text' || next.type === 'thinking') {
+    return last.type === next.type && !next.toolName;
+  }
+
+  if (next.type !== 'tool-use' || last.type !== 'tool-use') {
+    return false;
+  }
+
+  if (next.toolName && last.toolName && next.toolName !== last.toolName) {
+    return false;
+  }
+
+  return true;
+}
+
 // --- Debounced disk flush ---
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -209,9 +227,11 @@ export function appendOutput(jobId: string, entry: OutputEntry): void {
     outputLogs.set(jobId, log);
   }
 
-  // Merge consecutive text/thinking deltas
   const last = log[log.length - 1];
-  if (last && entry.type === last.type && (entry.type === 'text' || entry.type === 'thinking') && !entry.toolName) {
+  if (shouldMergeOutputEntry(last, entry)) {
+    if (entry.toolName && !last.toolName) {
+      last.toolName = entry.toolName;
+    }
     last.content += entry.content;
   } else {
     log.push(entry);
@@ -284,6 +304,14 @@ export function getSettings(): AppSettings {
         (merged.promptConfigs as Record<string, PromptConfig>)[id] = config;
       }
     }
+  }
+
+  // Migrate legacy permission mode values
+  const storedPermMode = stored.permissionMode as string;
+  if (storedPermMode === 'skip') {
+    merged.permissionMode = 'bypassPermissions';
+  } else if (storedPermMode === 'manual') {
+    merged.permissionMode = 'default';
   }
 
   return merged;

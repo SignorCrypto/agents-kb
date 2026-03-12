@@ -30,7 +30,7 @@ import { isDemoMode, getDemoProjects, getDemoJobs, getDemoSettings, getDemoBranc
 import { isGitRepoRoot, captureSnapshot, restoreSnapshot, cleanupAllSnapshots, getDiff, listBranches, checkoutBranch, gitStageAll, gitCommit, getBranchesStatus, gitPush, listChangedFiles, readHeadFileState } from './git-snapshot';
 import { listSkills } from './skills';
 import { listProjectFiles } from './file-list';
-import type { Job, OutputEntry, RawMessage, PendingQuestion, AppSettings, Project, ModelChoice, EffortLevel, PromptConfig } from '../shared/types';
+import type { Job, OutputEntry, RawMessage, PendingQuestion, AppSettings, Project, ModelChoice, EffortLevel, PromptConfig, PermissionMode } from '../shared/types';
 import { DEFAULT_PROMPT_CONFIGS } from '../shared/types';
 import {
   JobStepHistoryTracker,
@@ -649,7 +649,6 @@ async function startClaudeSession(
   phase: 'plan' | 'dev',
   sessionId?: string,
   promptOverride?: string,
-  allowedTools?: string[],
 ) {
   const project = getProjects().find(p => p.id === job.projectId);
   if (!project) throw new Error('Project not found');
@@ -697,7 +696,6 @@ async function startClaudeSession(
     model: effectiveModel !== 'default' ? effectiveModel : undefined,
     effort: effectiveEffort !== 'default' ? effectiveEffort : undefined,
     permissionMode: settings.permissionMode,
-    allowedTools,
   });
 
   session.on('session-id', (sid: string) => {
@@ -729,6 +727,11 @@ async function startClaudeSession(
       sendToRenderer(getWindow, 'job:needs-input', { jobId: job.id, question });
       notifyInputNeeded(job.id, project.name, job.title || job.prompt, question.text, getWindow);
     }
+  });
+
+  session.on('user-question', () => {
+    console.log('[ipc-handlers] AskUserQuestion detected — killing session to wait for user answer');
+    sessionManager.kill(job.id);
   });
 
   session.on('permission-denied', ({ message, deniedTools }: { message: string; deniedTools: string[] }) => {
@@ -789,8 +792,8 @@ async function startClaudeSession(
     const current = getJob(job.id);
     if (!current) return;
 
-    // If session was killed for a permission prompt, don't overwrite the waiting-input state
-    if (current.pendingQuestion?.isPermissionRequest) {
+    // If session was killed while waiting for user input (permission or question), preserve that state
+    if (current.pendingQuestion && current.status === 'waiting-input') {
       return;
     }
 
@@ -940,13 +943,19 @@ function runClaudePrint(projectPath: string, prompt: string, options?: { model?:
   });
 }
 
-function runClaudeEditTask(projectPath: string, prompt: string, options?: { model?: string; effort?: string; permissionMode?: string }): Promise<string> {
+function runClaudeEditTask(
+  projectPath: string,
+  prompt: string,
+  options?: {
+    model?: string;
+    effort?: string;
+    permissionMode?: PermissionMode;
+  },
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const { spawn } = require('child_process') as typeof import('child_process');
     const args = ['-p'];
-    if (options?.permissionMode === 'default') {
-      args.push('--permission-mode', 'default');
-    } else {
+    if ((options?.permissionMode ?? 'bypassPermissions') === 'bypassPermissions') {
       args.push('--dangerously-skip-permissions');
     }
     if (options?.model && options.model !== 'default') {
@@ -1056,7 +1065,12 @@ async function rollbackWithModel(job: Job, projectPath: string, targetIndex: num
   const prompt = buildPromptText(config, `\n\n${serializeRollbackContext(rollbackPlan.targets, targetLabel)}`);
 
   try {
-    await runClaudeEditTask(projectPath, prompt, { model: config.model, effort: config.effort, permissionMode: getSettings().permissionMode });
+    const settings = getSettings();
+    await runClaudeEditTask(projectPath, prompt, {
+      model: config.model,
+      effort: config.effort,
+      permissionMode: settings.permissionMode,
+    });
     const valid = await validateRollbackTargets(projectPath, rollbackPlan.targets);
     if (!valid) {
       throw new Error('Rollback output did not match the requested target state');
@@ -1638,7 +1652,6 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
           phase,
           current.sessionId, // resume the same session
           'The required permissions have been granted. Please retry the operation that was previously denied.',
-          deniedTools, // pass only the specific denied tools
         );
       } else {
         const updated = updateJob(jobId, {
@@ -1656,15 +1669,15 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
       return;
     }
 
-    // Normal question response — forward to active session
+    // Normal question response — forward to active session or resume if killed
+    let totalPausedMs = current.totalPausedMs || 0;
+    if (current.waitingStartedAt) {
+      totalPausedMs += Date.now() - new Date(current.waitingStartedAt).getTime();
+    }
+
     const session = sessionManager.get(jobId);
     if (session) {
       session.sendResponse(response);
-
-      let totalPausedMs = current.totalPausedMs || 0;
-      if (current.waitingStartedAt) {
-        totalPausedMs += Date.now() - new Date(current.waitingStartedAt).getTime();
-      }
 
       const updated = updateJob(jobId, {
         status: 'running',
@@ -1675,6 +1688,27 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
       if (updated) {
         sendToRenderer(getWindow, 'job:status-changed', updated);
       }
+    } else {
+      // Session was killed (e.g. AskUserQuestion) — resume with the user's answer
+      const phase = current.column === 'planning' ? 'plan' as const : 'dev' as const;
+      const updated = updateJob(jobId, {
+        status: 'running',
+        pendingQuestion: undefined,
+        waitingStartedAt: undefined,
+        totalPausedMs,
+      });
+      if (updated) {
+        sendToRenderer(getWindow, 'job:status-changed', updated);
+      }
+
+      await startClaudeSession(
+        { ...current, ...updated } as Job,
+        getWindow,
+        batchedSender,
+        phase,
+        current.sessionId,
+        response,
+      );
     }
   });
 
