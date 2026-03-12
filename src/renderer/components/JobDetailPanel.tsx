@@ -133,7 +133,7 @@ export function JobDetailPanel() {
   };
 
   const hasUncommittedChanges =
-    (job.gitSnapshots?.length ?? 0) > 0 && !job.committedSha && job.status !== 'rejected';
+    (job.gitSnapshots?.length ?? 0) > 0 && !job.committedSha && job.status !== 'rejected' && editedFiles.length > 0;
 
   const handleDelete = async (rollback?: boolean) => {
     setDeleteLoading(true);
