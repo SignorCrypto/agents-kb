@@ -207,6 +207,18 @@ export function JobDetailPanel() {
             )}
           </div>
           <div className="flex items-center gap-0.5 shrink-0">
+            {/* Prompt history */}
+            <button
+              onClick={() => useKanbanStore.getState().setPromptHistoryJobId(job.id)}
+              className="p-1.5 text-content-tertiary hover:text-content-secondary transition-colors rounded"
+              aria-label="View prompt history"
+              title="View prompt history"
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M2 4h12M2 8h8M2 12h10" />
+              </svg>
+            </button>
+
             {/* Cancel — inline for active jobs */}
             {isActive && (
               <button

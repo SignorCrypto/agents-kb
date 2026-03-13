@@ -70,7 +70,10 @@ export class ClaudeSession extends EventEmitter {
 
     const permissionMode: PermissionMode = this.options.permissionMode ?? 'bypassPermissions';
 
-    if (permissionMode === 'bypassPermissions') {
+    if (this.options.phase === 'plan') {
+      // Planning phase: always read-only, never skip permissions
+      args.push('--permission-mode', 'plan');
+    } else if (permissionMode === 'bypassPermissions') {
       args.push('--dangerously-skip-permissions');
     } else {
       // Pre-allow tools we handle internally via streaming events
@@ -85,11 +88,12 @@ export class ClaudeSession extends EventEmitter {
     const env = { ...process.env };
     delete env.CLAUDECODE;
 
+    const effectiveMode = this.options.phase === 'plan' ? 'plan (read-only)' : permissionMode;
     console.log('[claude-session] Launch config:', {
       phase: this.options.phase,
       resume: Boolean(this.options.sessionId),
-      permissionMode,
-      skipPermissions: permissionMode === 'bypassPermissions',
+      permissionMode: effectiveMode,
+      skipPermissions: this.options.phase !== 'plan' && permissionMode === 'bypassPermissions',
     });
     console.log('[claude-session] Spawning via PTY:', 'claude', args.join(' '));
     console.log('[claude-session] CWD:', this.options.projectPath);

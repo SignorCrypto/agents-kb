@@ -7,6 +7,7 @@ import { JobDetailPanel } from './components/JobDetailPanel';
 import { NewJobDialog } from './components/NewJobDialog';
 import { SettingsDialog } from './components/SettingsDialog';
 import { SkillsPanel } from './components/SkillsPanel';
+import { PromptHistoryDialog } from './components/PromptHistoryDialog';
 import { SetupScreen } from './components/SetupScreen';
 import { SplashScreen } from './components/SplashScreen';
 import { Kbd } from './components/Kbd';
@@ -30,6 +31,7 @@ export default function App() {
   const setShowSettings = useKanbanStore((s) => s.setShowSettings);
   const showSkillsPanel = useKanbanStore((s) => s.showSkillsPanel);
   const setShowSkillsPanel = useKanbanStore((s) => s.setShowSkillsPanel);
+  const promptHistoryJobId = useKanbanStore((s) => s.promptHistoryJobId);
   const projects = useKanbanStore((s) => s.projects);
   const selectedProjectId = useKanbanStore((s) => s.selectedProjectId);
   const selectProject = useKanbanStore((s) => s.selectProject);
@@ -149,6 +151,7 @@ export default function App() {
       {showNewJobDialog && <NewJobDialog />}
       {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} />}
       {showSkillsPanel && <SkillsPanel onClose={() => setShowSkillsPanel(false)} />}
+      {promptHistoryJobId && <PromptHistoryDialog />}
     </div>
   );
 }

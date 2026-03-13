@@ -779,11 +779,13 @@ async function startClaudeSession(
     }
   });
 
+  let planReadyPromise: Promise<void> | null = null;
+
   session.on('plan-complete', () => {
     if (phase === 'plan') {
       const current = getJob(job.id);
       if (current?.column === 'planning' && current.status === 'running') {
-        void markPlanReady(job.id, getWindow);
+        planReadyPromise = markPlanReady(job.id, getWindow);
       }
     }
   });
@@ -871,10 +873,18 @@ async function startClaudeSession(
         })();
       }
     } else {
-      if (current.column === 'planning' && current.status === 'running') {
+      if (planReadyPromise) {
+        // plan-complete already triggered markPlanReady — await it, then persist tokens
+        await planReadyPromise;
+        const updated = updateJob(job.id, { [tokenField]: mergedTokens });
+        if (updated) {
+          sendToRenderer(getWindow, 'job:status-changed', updated);
+        }
+      } else if (current.column === 'planning' && current.status === 'running') {
+        // plan-complete hasn't fired yet — mark ready now with tokens
         await markPlanReady(job.id, getWindow, { [tokenField]: mergedTokens });
       } else {
-        // plan-complete already called markPlanReady — persist tokens separately
+        // Already handled (e.g. status changed externally) — persist tokens only
         const updated = updateJob(job.id, { [tokenField]: mergedTokens });
         if (updated) {
           sendToRenderer(getWindow, 'job:status-changed', updated);
