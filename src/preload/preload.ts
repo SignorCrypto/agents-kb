@@ -23,17 +23,16 @@ const api: ElectronAPI = {
   // Jobs
   jobsList: () => ipcRenderer.invoke('jobs:list'),
   jobsCreate: (projectId, prompt, skipPlanning, images, branch, model, effort) => ipcRenderer.invoke('jobs:create', projectId, prompt, skipPlanning, images, branch, model, effort),
-  saveImage: (dataBase64, filename, projectId) => ipcRenderer.invoke('images:save', dataBase64, filename, projectId),
   jobsCancel: (jobId) => ipcRenderer.invoke('jobs:cancel', jobId),
   jobsDelete: (jobId, options) => ipcRenderer.invoke('jobs:delete', jobId, options),
-  jobsRetry: (jobId, message) => ipcRenderer.invoke('jobs:retry', jobId, message),
+  jobsRetry: (jobId, message, images) => ipcRenderer.invoke('jobs:retry', jobId, message, images),
   jobsRespond: (jobId, response) => ipcRenderer.invoke('jobs:respond', jobId, response),
-  jobsSteer: (jobId, message) => ipcRenderer.invoke('jobs:steer', jobId, message),
+  jobsSteer: (jobId, message, images) => ipcRenderer.invoke('jobs:steer', jobId, message, images),
   jobsAcceptPlan: (jobId) => ipcRenderer.invoke('jobs:accept-plan', jobId),
-  jobsEditPlan: (jobId, feedback) => ipcRenderer.invoke('jobs:edit-plan', jobId, feedback),
+  jobsEditPlan: (jobId, feedback, images) => ipcRenderer.invoke('jobs:edit-plan', jobId, feedback, images),
   jobsGetDiff: (jobId) => ipcRenderer.invoke('jobs:get-diff', jobId),
   jobsRejectJob: (jobId, snapshotIndex) => ipcRenderer.invoke('jobs:reject-job', jobId, snapshotIndex),
-  jobsFollowUp: (jobId, prompt) => ipcRenderer.invoke('jobs:follow-up', jobId, prompt),
+  jobsFollowUp: (jobId, prompt, images) => ipcRenderer.invoke('jobs:follow-up', jobId, prompt, images),
 
   // File Rewind
   jobsRewindPreview: (jobId, userMessageId) => ipcRenderer.invoke('jobs:rewind-preview', jobId, userMessageId),
@@ -42,6 +41,7 @@ const api: ElectronAPI = {
 
   // Files
   filesList: (projectId) => ipcRenderer.invoke('files:list', projectId),
+  filesOpenInEditor: (projectId, filePath) => ipcRenderer.invoke('files:open-in-editor', projectId, filePath),
 
   // CLI Health
   cliCheckHealth: () => ipcRenderer.invoke('cli:check-health'),
@@ -61,6 +61,9 @@ const api: ElectronAPI = {
 
   // Shell
   shellOpenExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
+
+  // Editors
+  editorsDetectInstalled: () => ipcRenderer.invoke('editors:detect-installed'),
 
   // Settings
   settingsGet: () => ipcRenderer.invoke('settings:get'),

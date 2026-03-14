@@ -188,7 +188,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   showModelEffortInNewJob: false,
   preferredEditor: "auto",
   notificationsEnabled: true,
-  deleteCompletedJobsOnCommit: true,
+  deleteCompletedJobsOnCommit: false,
   permissionMode: 'bypassPermissions',
 };
 
@@ -296,6 +296,13 @@ export interface QuestionOption {
   description?: string;
 }
 
+export interface SubQuestion {
+  question: string;       // question text, also the key in answers record
+  header?: string;
+  options?: QuestionOption[];
+  multiSelect?: boolean;
+}
+
 export interface PendingQuestion {
   questionId: string;
   text: string;
@@ -307,6 +314,8 @@ export interface PendingQuestion {
   isPermissionRequest?: boolean;
   /** Tool names that were denied (e.g. ['Bash']) */
   deniedTools?: string[];
+  /** All questions (1-4) from the SDK AskUserQuestion tool */
+  subQuestions?: SubQuestion[];
 }
 
 export interface RawMessage {
@@ -319,6 +328,13 @@ export interface FollowUp {
   timestamp: string;
   title?: string;
   rolledBack?: boolean;
+}
+
+/** Image attachment metadata. base64 is transient (not persisted to electron-store). */
+export interface JobImage {
+  name: string;
+  mediaType: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
+  base64?: string;
 }
 
 export interface Job {
@@ -342,7 +358,7 @@ export interface Job {
   summaryText?: string;
   error?: string;
   branch?: string;
-  images?: string[];
+  images?: JobImage[];
   skipPlanning?: boolean;
   waitingStartedAt?: string;
   totalPausedMs?: number;

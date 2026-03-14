@@ -2,18 +2,13 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useKanbanStore } from '../hooks/useKanbanStore';
 import { useElectronAPI } from '../hooks/useElectronAPI';
 import { useShortcut } from '../hooks/useShortcut';
+import { useImageAttachment } from '../hooks/useImageAttachment';
 import { Kbd } from './Kbd';
 import { SegmentedPicker } from './SegmentedPicker';
 import { MentionTextarea } from './MentionInput';
+import { ImageAttachmentBar } from './ImageAttachmentBar';
 import { EFFORT_CATALOG, getProjectColor } from '../types/index';
-import { XIcon } from './Icons';
 import type { ModelChoice, EffortLevel } from '../types/index';
-
-interface AttachedImage {
-  name: string;
-  dataUrl: string;
-  base64: string;
-}
 
 export function NewJobDialog() {
   const projects = useKanbanStore((s) => s.projects);
@@ -28,7 +23,7 @@ export function NewJobDialog() {
   const [prompt, setPrompt] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [skipPlanning, setSkipPlanning] = useState(true);
-  const [images, setImages] = useState<AttachedImage[]>([]);
+  const imageAttachment = useImageAttachment();
   const [branches, setBranches] = useState<string[]>([]);
   const [currentBranch, setCurrentBranch] = useState('');
   const [selectedBranch, setSelectedBranch] = useState('');
@@ -36,50 +31,11 @@ export function NewJobDialog() {
   const [selectedModel, setSelectedModel] = useState<ModelChoice>(settings.defaultModel);
   const [selectedEffort, setSelectedEffort] = useState<EffortLevel>(settings.defaultEffort);
   const [error, setError] = useState('');
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const projectSelectRef = useRef<HTMLSelectElement>(null);
   const branchSelectRef = useRef<HTMLSelectElement>(null);
 
   const togglePlan = useCallback(() => setSkipPlanning((v) => !v), []);
-
-  const addImageFromFile = useCallback((file: File) => {
-    if (!file.type.startsWith('image/')) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      const base64 = dataUrl.split(',')[1];
-      setImages((prev) => [...prev, { name: file.name, dataUrl, base64 }]);
-    };
-    reader.readAsDataURL(file);
-  }, []);
-
-  const handlePaste = useCallback((e: React.ClipboardEvent) => {
-    const items = e.clipboardData?.items;
-    if (!items) return;
-    for (const item of items) {
-      if (item.type.startsWith('image/')) {
-        e.preventDefault();
-        const file = item.getAsFile();
-        if (file) addImageFromFile(file);
-      }
-    }
-  }, [addImageFromFile]);
-
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    const files = e.dataTransfer?.files;
-    if (!files) return;
-    for (const file of files) {
-      if (file.type.startsWith('image/')) {
-        addImageFromFile(file);
-      }
-    }
-  }, [addImageFromFile]);
-
-  const removeImage = useCallback((index: number) => {
-    setImages((prev) => prev.filter((_, i) => i !== index));
-  }, []);
 
   useEffect(() => {
     if (!selectedProjectId) {
@@ -128,18 +84,10 @@ export function NewJobDialog() {
     setSubmitting(true);
     setError('');
     try {
-      // Save images to temp files and collect paths
-      let imagePaths: string[] | undefined;
-      if (images.length > 0) {
-        imagePaths = await Promise.all(
-          images.map((img) => api.saveImage(img.base64, img.name, selectedProjectId))
-        );
-      }
-
       const branchToUse = branches.length > 0 ? selectedBranch : undefined;
       const modelToUse = selectedModel !== settings.defaultModel ? selectedModel : undefined;
       const effortToUse = selectedEffort !== settings.defaultEffort ? selectedEffort : undefined;
-      const job = await api.jobsCreate(selectedProjectId, prompt.trim(), skipPlanning || undefined, imagePaths, branchToUse, modelToUse, effortToUse);
+      const job = await api.jobsCreate(selectedProjectId, prompt.trim(), skipPlanning || undefined, imageAttachment.toJobImages(), branchToUse, modelToUse, effortToUse);
       addJob(job);
       setShowNewJobDialog(false);
     } catch (err) {
@@ -271,9 +219,9 @@ export function NewJobDialog() {
           <MentionTextarea
             value={prompt}
             onChange={setPrompt}
-            onPaste={handlePaste}
-            onDrop={handleDrop}
-            onDragOver={(e) => e.preventDefault()}
+            onPaste={imageAttachment.handlePaste}
+            onDrop={imageAttachment.handleDrop}
+            onDragOver={imageAttachment.handleDragOver}
             projectId={selectedProjectId}
             placeholder="Describe what you want Claude to do... Use @ to reference files"
             rows={6}
@@ -283,65 +231,11 @@ export function NewJobDialog() {
         </div>
 
         {/* Image attachments */}
-        {images.length > 0 && (
-          <div className="mb-4 flex flex-wrap gap-2">
-            {images.map((img, i) => (
-              <div
-                key={i}
-                className="relative group w-16 h-16 rounded-lg overflow-hidden border border-chrome"
-              >
-                <img
-                  src={img.dataUrl}
-                  alt={img.name}
-                  className="w-full h-full object-cover"
-                />
-                <button
-                  onClick={() => removeImage(i)}
-                  className="absolute inset-0 bg-surface-overlay/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-content-inverted"
-                >
-                  <XIcon size={14} />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Image attach button */}
-        <div className="mb-6 flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg border border-chrome text-content-secondary hover:text-content-primary hover:bg-surface-tertiary transition-colors"
-          >
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="2" y="2" width="12" height="12" rx="2" />
-              <circle cx="5.5" cy="5.5" r="1" />
-              <path d="M14 10l-3-3-7 7" />
-            </svg>
-            Attach Image
-          </button>
-          {images.length > 0 && (
-            <span className="text-[10px] text-content-tertiary">
-              {images.length} image{images.length !== 1 ? 's' : ''} attached
-            </span>
-          )}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            className="hidden"
-            onChange={(e) => {
-              const files = e.target.files;
-              if (files) {
-                for (const file of files) {
-                  addImageFromFile(file);
-                }
-              }
-              e.target.value = '';
-            }}
-          />
-        </div>
+        <ImageAttachmentBar
+          images={imageAttachment.images}
+          onRemove={imageAttachment.removeImage}
+          onAddFiles={imageAttachment.addFiles}
+        />
 
         {/* Plan toggle */}
         <div className="flex items-center justify-between mb-6">

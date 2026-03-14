@@ -4,7 +4,7 @@ import { EventEmitter } from "events";
 import { v4 as uuidv4 } from "uuid";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { PermissionResult, CanUseTool } from "@anthropic-ai/claude-agent-sdk";
-import type { OutputEntry, PendingQuestion, QuestionOption, PermissionMode, Skill } from "../shared/types";
+import type { OutputEntry, PendingQuestion, QuestionOption, SubQuestion, PermissionMode, Skill, JobImage } from "../shared/types";
 
 export type SessionPhase = "plan" | "dev";
 
@@ -14,7 +14,7 @@ export interface ClaudeSessionOptions {
   prompt: string;
   phase: SessionPhase;
   sessionId?: string; // for resuming
-  images?: string[];
+  images?: JobImage[];
   model?: string;
   effort?: string;
   permissionMode?: PermissionMode;
@@ -108,11 +108,8 @@ export class ClaudeSession extends EventEmitter {
   }
 
   start(): void {
-    let prompt = this.options.prompt;
-    if (this.options.images && this.options.images.length > 0) {
-      const imageList = this.options.images.map((p) => `- ${p}`).join("\n");
-      prompt += `\n\nThe following image files are attached for reference. Please read and examine them:\n${imageList}`;
-    }
+    const prompt = this.options.prompt;
+    const images = this.options.images;
 
     const permissionMode: PermissionMode = this.options.permissionMode ?? "bypassPermissions";
     const sdkPermissionMode = this.options.phase === "plan" ? "plan" : "default";
@@ -171,7 +168,35 @@ export class ClaudeSession extends EventEmitter {
     });
     console.log("[claude-session] CWD:", this.options.projectPath);
 
-    this.queryInstance = query({ prompt, options: sdkOptions });
+    if (images?.length) {
+      // Use streaming input mode to send images as base64 content blocks
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const contentBlocks: any[] = [
+        { type: "text", text: prompt },
+        ...images.map((img) => ({
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: img.mediaType,
+            data: img.base64!,
+          },
+        })),
+      ];
+
+      async function* generateMessages() {
+        yield {
+          type: "user" as const,
+          message: { role: "user" as const, content: contentBlocks },
+          parent_tool_use_id: null,
+          session_id: "",
+        };
+      }
+
+      this.queryInstance = query({ prompt: generateMessages(), options: sdkOptions });
+    } else {
+      // No images — simple string prompt
+      this.queryInstance = query({ prompt, options: sdkOptions });
+    }
     void this.iterateMessages();
     void this.fetchInitData();
   }
@@ -262,6 +287,11 @@ export class ClaudeSession extends EventEmitter {
       }
       return { behavior: "allow", updatedInput: input };
     }
+
+    // Capture file "before" state BEFORE the SDK executes the tool.
+    // This must happen here (not in finalizeToolBlock) because the SDK
+    // modifies the file between canUseTool and the next message yield.
+    this.emit("pre-tool-call", { name: toolName, input });
 
     // Tools granted by user during this session
     if (this.grantedTools.has(toolName)) {
@@ -363,7 +393,7 @@ export class ClaudeSession extends EventEmitter {
    * Respond to a pending AskUserQuestion or permission prompt.
    * Resolves the canUseTool promise so the SDK continues.
    */
-  sendResponse(text: string): void {
+  sendResponse(answers: Record<string, string>): void {
     if (!this.pendingInputResolve || !this.pendingInputContext) {
       console.log("[claude-session] sendResponse called but no pending input");
       return;
@@ -375,20 +405,16 @@ export class ClaudeSession extends EventEmitter {
     this.pendingInputContext = null;
 
     if (context.type === "question") {
-      // Build answers for AskUserQuestion
+      // Pass answers directly to the SDK
       const questions = (context.toolInput.questions as Array<Record<string, unknown>>) || [];
-      const answers: Record<string, string> = {};
-      if (questions.length > 0) {
-        // Map first question to the user's response text
-        const questionText = (questions[0].question as string) || "";
-        answers[questionText] = text;
-      }
       resolve({
         behavior: "allow" as const,
         updatedInput: { questions, answers },
       });
     } else if (context.type === "permission") {
-      const isAllowed = text.toLowerCase().includes("allow");
+      // For permission prompts, extract the first answer value
+      const firstValue = Object.values(answers)[0] || "";
+      const isAllowed = firstValue.toLowerCase().includes("allow");
       if (isAllowed && context.toolName) {
         // Grant this tool for the rest of the session
         this.grantedTools.add(context.toolName);
@@ -539,6 +565,9 @@ export class ClaudeSession extends EventEmitter {
       case "auth_status":
         this.handleAuthStatus(msg);
         break;
+      case "stream_event":
+        // Raw SSE stream events — already processed via partial assistant messages
+        break;
       default:
         // console.log(`[claude-session] Unhandled message type: ${type}`, JSON.stringify(msg).slice(0, 200));
         break;
@@ -556,6 +585,36 @@ export class ClaudeSession extends EventEmitter {
       if (sdkSkills.length > 0) {
         this.emit("skills", sdkSkills);
       }
+    }
+
+    if (msg.subtype === "hook_progress") {
+      const hookName = (msg.hook_name as string) || "hook";
+      const output = (msg.stdout as string) || (msg.output as string) || (msg.stderr as string) || "";
+      if (output) {
+        this.emit("output", {
+          timestamp: new Date().toISOString(),
+          type: "progress",
+          content: `[${hookName}] ${output}`,
+          toolName: hookName,
+        } satisfies OutputEntry);
+      }
+      return;
+    }
+
+    if (msg.subtype === "hook_response") {
+      const hookName = (msg.hook_name as string) || "hook";
+      const exitCode = msg.exit_code as number | undefined;
+      const outcome = (msg.outcome as string) || "";
+      const isError = exitCode != null && exitCode !== 0;
+      const parts = [`Hook completed: ${hookName}`];
+      if (outcome) parts.push(`— ${outcome}`);
+      if (isError) parts.push(`(exit code ${exitCode})`);
+      this.emit("output", {
+        timestamp: new Date().toISOString(),
+        type: isError ? "error" : "system",
+        content: parts.join(" "),
+      } satisfies OutputEntry);
+      return;
     }
 
     const content = this.formatSystemMessage(msg);
@@ -783,12 +842,17 @@ export class ClaudeSession extends EventEmitter {
     // Finalize all pending tool blocks (tool results mean tools completed)
     this.finalizeAllToolBlocks();
 
-    // Track user message UUIDs for rewindFiles()
+    const isReplay = msg.isReplay === true;
+
+    // Track user message UUIDs for rewindFiles() — skip replays to avoid duplicates
     const uuid = msg.uuid as string | undefined;
-    if (uuid && !msg.parent_tool_use_id) {
+    if (uuid && !msg.parent_tool_use_id && !isReplay) {
       this.userMessageUuids.push(uuid);
       this.emit("user-message-uuid", uuid);
     }
+
+    // Skip emitting tool results for replayed messages
+    if (isReplay) return;
 
     // Extract tool results for display
     const message = msg.message;
@@ -1053,6 +1117,36 @@ export class ClaudeSession extends EventEmitter {
       case "api_request":
         return "";
 
+      case "status": {
+        const status = msg.status as string | null;
+        if (status === "compacting") return "Compacting conversation context...";
+        if (status === null) return "Context compaction complete";
+        return status ? `Status: ${status}` : "";
+      }
+
+      case "compact_boundary": {
+        const meta = msg.compact_metadata as { trigger?: string; pre_tokens?: number } | undefined;
+        const trigger = meta?.trigger || "auto";
+        const tokens = meta?.pre_tokens;
+        const tokenInfo = tokens ? ` — ${tokens.toLocaleString()} tokens before` : "";
+        return `Context compacted (${trigger}${tokenInfo})`;
+      }
+
+      case "hook_started": {
+        const hookName = (msg.hook_name as string) || "hook";
+        const hookEvent = (msg.hook_event as string) || "";
+        return hookEvent ? `Hook started: ${hookName} (${hookEvent})` : `Hook started: ${hookName}`;
+      }
+
+      case "files_persisted": {
+        const files = msg.files as Array<{ filename: string }> | undefined;
+        const failed = msg.failed as Array<{ filename: string; error: string }> | undefined;
+        const count = files?.length || 0;
+        const failCount = failed?.length || 0;
+        if (failCount > 0) return `File checkpoint: ${count} saved, ${failCount} failed`;
+        return count > 0 ? `File checkpoint saved (${count} files)` : "";
+      }
+
       default: {
         if (msg.message && typeof msg.message === "string") {
           return msg.message;
@@ -1100,50 +1194,48 @@ export class ClaudeSession extends EventEmitter {
   // Question emission (preserved from original)
   // ---------------------------------------------------------------------------
 
+  private parseOptions(rawOptions: unknown): QuestionOption[] | undefined {
+    if (!Array.isArray(rawOptions)) return undefined;
+    return (rawOptions as Array<Record<string, unknown>>).map((opt) => {
+      if (typeof opt === "string") return { label: opt };
+      return {
+        label: (opt.label as string) || String(opt),
+        description: opt.description as string | undefined,
+      };
+    });
+  }
+
   private emitQuestion(input: Record<string, unknown>): void {
     if (Array.isArray(input.questions) && (input.questions as Array<unknown>).length > 0) {
-      const q = (input.questions as Array<Record<string, unknown>>)[0];
-      const questionText = (q.question as string) || (q.text as string) || "";
-      const header = q.header as string | undefined;
-      const multiSelect = q.multiSelect as boolean | undefined;
+      const rawQuestions = input.questions as Array<Record<string, unknown>>;
 
-      let options: QuestionOption[] | undefined;
-      if (Array.isArray(q.options)) {
-        options = (q.options as Array<Record<string, unknown>>).map((opt) => {
-          if (typeof opt === "string") return { label: opt };
-          return {
-            label: (opt.label as string) || String(opt),
-            description: opt.description as string | undefined,
-          };
-        });
-      }
+      // Build SubQuestion[] from all questions
+      const subQuestions: SubQuestion[] = rawQuestions.map((q) => ({
+        question: (q.question as string) || (q.text as string) || "",
+        header: q.header as string | undefined,
+        options: this.parseOptions(q.options),
+        multiSelect: q.multiSelect as boolean | undefined,
+      }));
+
+      // Top-level fields mirror subQuestions[0] for backward compat
+      const first = subQuestions[0];
 
       this.emit("needs-input", {
         questionId: uuidv4(),
-        text: questionText,
-        header,
-        options,
-        multiSelect,
+        text: first.question,
+        header: first.header,
+        options: first.options,
+        multiSelect: first.multiSelect,
+        subQuestions: subQuestions.length > 1 ? subQuestions : undefined,
         timestamp: new Date().toISOString(),
       } satisfies PendingQuestion);
     } else {
       const questionText = (input.question as string) || (input.text as string) || JSON.stringify(input);
-      let options: QuestionOption[] | undefined;
-      if (Array.isArray(input.options)) {
-        options = (input.options as Array<unknown>).map((opt) => {
-          if (typeof opt === "string") return { label: opt };
-          const o = opt as Record<string, unknown>;
-          return {
-            label: (o.label as string) || String(opt),
-            description: o.description as string | undefined,
-          };
-        });
-      }
 
       this.emit("needs-input", {
         questionId: uuidv4(),
         text: questionText,
-        options,
+        options: this.parseOptions(input.options),
         timestamp: new Date().toISOString(),
       } satisfies PendingQuestion);
     }

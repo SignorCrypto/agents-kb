@@ -3,7 +3,6 @@ import { query as sdkQuery } from '@anthropic-ai/claude-agent-sdk';
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import fs from 'fs';
-import os from 'os';
 import {
   getProjects,
   addProject,
@@ -30,7 +29,7 @@ import { isDemoMode, getDemoProjects, getDemoJobs, getDemoSettings, getDemoBranc
 import { isGitRepoRoot, listBranches, checkoutBranch, gitStageAll, gitCommit, getBranchesStatus, gitPush } from './git-snapshot';
 import { listSkills } from './skills';
 import { listProjectFiles } from './file-list';
-import type { Job, OutputEntry, RawMessage, PendingQuestion, AppSettings, Project, ModelChoice, EffortLevel, PromptConfig, PermissionMode, DynamicModelInfo, ModelOption, Skill, AccountInfo } from '../shared/types';
+import type { Job, JobImage, OutputEntry, RawMessage, PendingQuestion, AppSettings, Project, ModelChoice, EffortLevel, PromptConfig, PermissionMode, DynamicModelInfo, ModelOption, Skill, AccountInfo } from '../shared/types';
 import { DEFAULT_PROMPT_CONFIGS, MODEL_CATALOG } from '../shared/types';
 import {
   JobStepHistoryTracker,
@@ -43,6 +42,56 @@ import {
   serializeRollbackContext,
   validateRollbackTargets,
 } from './job-step-history';
+
+/* ─── Supported Editors ─── */
+
+const EDITORS: { key: string; cli: string; appBin: string; appName: string }[] = [
+  {
+    key: 'cursor',
+    cli: 'cursor',
+    appBin: '/Applications/Cursor.app/Contents/Resources/app/bin/cursor',
+    appName: 'Cursor',
+  },
+  {
+    key: 'vscode',
+    cli: 'code',
+    appBin: '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code',
+    appName: 'Visual Studio Code',
+  },
+];
+
+/* ─── Shared editor-launch helpers ─── */
+
+const launchDetached = (command: string, args: string[]): Promise<boolean> =>
+  new Promise((resolve) => {
+    try {
+      const { spawn: spawnProc } = require('child_process');
+      const child = spawnProc(command, args, {
+        detached: true,
+        stdio: 'ignore',
+      });
+
+      let settled = false;
+      const finish = (ok: boolean) => {
+        if (settled) return;
+        settled = true;
+        resolve(ok);
+      };
+
+      child.once('error', () => finish(false));
+      child.once('spawn', () => {
+        child.unref();
+        finish(true);
+      });
+    } catch {
+      resolve(false);
+    }
+  });
+
+const activateApp = async (appName: string): Promise<void> => {
+  if (process.platform !== 'darwin') return;
+  await launchDetached('osascript', ['-e', `tell application "${appName}" to activate`]);
+};
 
 type WindowGetter = () => BrowserWindow | null;
 
@@ -333,13 +382,17 @@ async function startClaudeSession(
   const effectiveModel = job.model || settings.defaultModel;
   const effectiveEffort = job.effort || settings.defaultEffort;
 
+  // Pull transient image data from cache (if any), then clear to free memory
+  const images = pendingImages.get(job.id);
+  pendingImages.delete(job.id);
+
   const session = sessionManager.create({
     jobId: job.id,
     projectPath: project.path,
     prompt,
     phase,
     sessionId,
-    images: job.images,
+    images,
     model: effectiveModel,
     effort: effectiveEffort,
     permissionMode: settings.permissionMode,
@@ -359,7 +412,9 @@ async function startClaudeSession(
     batchedSender.pushOutput(job.id, entry);
   });
 
-  session.on('tool-call', (payload: { name: string; input: Record<string, unknown> }) => {
+  // Capture file "before" state from canUseTool (pre-tool-call) — fires BEFORE
+  // the SDK executes the tool, so the file hasn't been modified yet.
+  session.on('pre-tool-call', (payload: { name: string; input: Record<string, unknown> }) => {
     void stepHistoryTracker.recordToolCall(job.id, project.path, payload);
   });
 
@@ -854,6 +909,13 @@ function registerDemoHandlers(): void {
   console.log('[Demo Mode] Registered demo IPC handlers — all mutations are no-ops');
 }
 
+/**
+ * Transient in-memory cache for image base64 data.
+ * Images are stored here on job creation / follow-up / steer / etc.,
+ * then consumed by startClaudeSession and cleared to free memory.
+ */
+const pendingImages = new Map<string, JobImage[]>();
+
 export function registerIpcHandlers(getWindow: WindowGetter): void {
   // App version — always available
   ipcMain.handle('app:get-version', () => app.getVersion());
@@ -965,54 +1027,7 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     // Git repos: open in preferred editor
     const settings = getSettings();
     const preferred = settings.preferredEditor ?? 'auto';
-    const { spawn: spawnProc } = await import('child_process');
     const { existsSync } = await import('fs');
-
-    const launchDetached = (command: string, args: string[]): Promise<boolean> =>
-      new Promise((resolve) => {
-        try {
-          const child = spawnProc(command, args, {
-            detached: true,
-            stdio: 'ignore',
-          });
-
-          let settled = false;
-          const finish = (ok: boolean) => {
-            if (settled) return;
-            settled = true;
-            resolve(ok);
-          };
-
-          child.once('error', () => finish(false));
-          child.once('spawn', () => {
-            child.unref();
-            finish(true);
-          });
-        } catch {
-          resolve(false);
-        }
-      });
-
-    const activateApp = async (appName: string): Promise<void> => {
-      if (process.platform !== 'darwin') return;
-      await launchDetached('osascript', ['-e', `tell application "${appName}" to activate`]);
-    };
-
-    // Editor definitions with CLI and app bundle fallbacks.
-    const EDITORS: { key: string; cli: string; appBin: string; appName: string }[] = [
-      {
-        key: 'cursor',
-        cli: 'cursor',
-        appBin: '/Applications/Cursor.app/Contents/Resources/app/bin/cursor',
-        appName: 'Cursor',
-      },
-      {
-        key: 'vscode',
-        cli: 'code',
-        appBin: '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code',
-        appName: 'Visual Studio Code',
-      },
-    ];
 
     const tryEditor = async (editor: typeof EDITORS[number]): Promise<boolean> => {
       // 1) Prefer the editor CLI from PATH for cross-platform installs.
@@ -1060,6 +1075,109 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
       console.warn(`[open-in-editor] Opened folder ${project.path} without switching to branch "${branch}" because the working tree is dirty.`);
     }
     return result;
+  });
+
+  /* ─── Detect Installed Editors ─── */
+
+  ipcMain.handle('editors:detect-installed', async () => {
+    const { execFile } = await import('child_process');
+    const { promisify } = await import('util');
+    const { existsSync } = await import('fs');
+    const execFileAsync = promisify(execFile);
+
+    const whichCmd = process.platform === 'win32' ? 'where' : 'which';
+
+    const isInstalled = async (editor: typeof EDITORS[number]): Promise<boolean> => {
+      // 1) Check CLI on PATH
+      try {
+        await execFileAsync(whichCmd, [editor.cli], { timeout: 5_000 });
+        return true;
+      } catch { /* not on PATH */ }
+
+      // 2) macOS: check app bundle binary
+      if (process.platform === 'darwin' && existsSync(editor.appBin)) {
+        return true;
+      }
+
+      // 3) macOS: check .app exists via mdfind (Spotlight)
+      if (process.platform === 'darwin') {
+        try {
+          const { stdout } = await execFileAsync('mdfind', [
+            `kMDItemFSName == "${editor.appName}.app" && kMDItemContentType == "com.apple.application-bundle"`,
+          ], { timeout: 5_000 });
+          if (stdout.trim().length > 0) return true;
+        } catch { /* mdfind failed */ }
+      }
+
+      return false;
+    };
+
+    const results = await Promise.all(EDITORS.map(async (e) => [e.key, await isInstalled(e)] as const));
+    return Object.fromEntries(results) as Record<string, boolean>;
+  });
+
+  /* ─── Open a specific file in the preferred editor ─── */
+
+  ipcMain.handle('files:open-in-editor', async (_event, projectId: string, filePath: string) => {
+    const project = getProjects().find(p => p.id === projectId);
+    if (!project) return { success: false, error: 'Project not found' };
+
+    const { existsSync } = await import('fs');
+
+    // Resolve the full file path (handle relative paths)
+    const fullFilePath = path.isAbsolute(filePath)
+      ? filePath
+      : path.join(project.path, filePath);
+
+    const settings = getSettings();
+    const preferred = settings.preferredEditor ?? 'auto';
+
+    const tryEditorWithFile = async (editor: typeof EDITORS[number]): Promise<boolean> => {
+      // Editor CLIs accept: <cli> <project-folder> <file-path>
+      // This opens the project and focuses the specific file tab
+      const args = [project.path, fullFilePath];
+
+      // 1) CLI on PATH
+      if (await launchDetached(editor.cli, args)) {
+        await activateApp(editor.appName);
+        return true;
+      }
+
+      // 2) macOS: bundled CLI inside .app
+      if (process.platform === 'darwin' && existsSync(editor.appBin)) {
+        if (await launchDetached(editor.appBin, args)) {
+          await activateApp(editor.appName);
+          return true;
+        }
+      }
+
+      // 3) macOS fallback: Launch Services (can only open folder, not specific file)
+      if (process.platform === 'darwin') {
+        if (await launchDetached('open', ['-a', editor.appName, fullFilePath])) {
+          await activateApp(editor.appName);
+          return true;
+        }
+      }
+
+      return false;
+    };
+
+    const order: typeof EDITORS[number][] =
+      preferred === 'cursor' ? [EDITORS[0]] :
+      preferred === 'vscode' ? [EDITORS[1]] :
+      EDITORS; // auto: try cursor first, then vscode
+
+    for (const editor of order) {
+      if (await tryEditorWithFile(editor)) {
+        return { success: true, editor: editor.key };
+      }
+    }
+
+    // No editor found — open with OS default
+    const error = await shell.openPath(fullFilePath);
+    return error
+      ? { success: false, error }
+      : { success: true, editor: 'default' };
   });
 
   ipcMain.handle('git:list-branches', (_event, projectId: string) => {
@@ -1142,8 +1260,14 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     return getJobs();
   });
 
-  ipcMain.handle('jobs:create', async (_event, projectId: string, prompt: string, skipPlanning?: boolean, images?: string[], branch?: string, model?: ModelChoice, effort?: EffortLevel) => {
+  ipcMain.handle('jobs:create', async (_event, projectId: string, prompt: string, skipPlanning?: boolean, images?: JobImage[], branch?: string, model?: ModelChoice, effort?: EffortLevel) => {
     const now = new Date().toISOString();
+
+    // Strip base64 data for persistence — keep only metadata
+    const persistImages = images?.length
+      ? images.map(({ name, mediaType }) => ({ name, mediaType }))
+      : undefined;
+
     const job: Job = {
       id: uuidv4(),
       projectId,
@@ -1154,13 +1278,18 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
       ...(skipPlanning
         ? { developmentStartedAt: now, skipPlanning: true }
         : { planningStartedAt: now }),
-      ...(images && images.length > 0 ? { images } : {}),
+      ...(persistImages ? { images: persistImages } : {}),
       ...(branch ? { branch } : {}),
       ...(model ? { model } : {}),
       ...(effort ? { effort } : {}),
       outputLog: [],
       rawMessages: [],
     };
+
+    // Cache full image data (with base64) for the session
+    if (images?.length) {
+      pendingImages.set(job.id, images);
+    }
 
     if (skipPlanning) {
       stepHistoryTracker.startStep(job.id, getStepLabel(0), 0);
@@ -1179,22 +1308,6 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     return job;
   });
 
-  ipcMain.handle('images:save', (_event, dataBase64: string, filename: string, projectId: string) => {
-    const project = getProjects().find(p => p.id === projectId);
-    if (!project) throw new Error('Project not found');
-
-    const tmpDir = path.join(os.tmpdir(), 'agents-kb-images');
-    fs.mkdirSync(tmpDir, { recursive: true });
-
-    const ext = path.extname(filename) || '.png';
-    const safeName = `${uuidv4()}${ext}`;
-    const filePath = path.join(tmpDir, safeName);
-
-    const buffer = Buffer.from(dataBase64, 'base64');
-    fs.writeFileSync(filePath, buffer);
-
-    return filePath;
-  });
 
   ipcMain.handle('jobs:cancel', (_event, jobId: string) => {
     sessionManager.kill(jobId);
@@ -1224,7 +1337,7 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     deleteJob(jobId);
   });
 
-  ipcMain.handle('jobs:retry', async (_event, jobId: string, message?: string) => {
+  ipcMain.handle('jobs:retry', async (_event, jobId: string, message?: string, images?: JobImage[]) => {
     const job = getJob(jobId);
     if (!job) throw new Error('Job not found');
 
@@ -1282,13 +1395,14 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
         );
       }
       sendToRenderer(getWindow, 'job:status-changed', updated);
+      if (images?.length) pendingImages.set(jobId, images);
       await startClaudeSession(updated, getWindow, batchedSender, phase, undefined, message || undefined);
     }
 
     return updated;
   });
 
-  ipcMain.handle('jobs:respond', async (_event, jobId: string, response: string) => {
+  ipcMain.handle('jobs:respond', async (_event, jobId: string, answers: Record<string, string>) => {
     const current = getJob(jobId);
     if (!current) return;
 
@@ -1307,7 +1421,8 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
 
     // Log permission grants
     if (current.pendingQuestion?.isPermissionRequest) {
-      const isAllowed = response.toLowerCase().includes('allow');
+      const firstValue = Object.values(answers)[0] || '';
+      const isAllowed = firstValue.toLowerCase().includes('allow');
       const deniedTools = current.pendingQuestion.deniedTools || [];
       if (isAllowed) {
         const outputLog = getOutputLog(jobId);
@@ -1320,7 +1435,7 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
       }
     }
 
-    session.sendResponse(response);
+    session.sendResponse(answers);
 
     const updated = updateJob(jobId, {
       status: 'running',
@@ -1333,7 +1448,7 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     }
   });
 
-  ipcMain.handle('jobs:steer', async (_event, jobId: string, message: string) => {
+  ipcMain.handle('jobs:steer', async (_event, jobId: string, message: string, images?: JobImage[]) => {
     const job = getJob(jobId);
     if (!job) throw new Error('Job not found');
 
@@ -1356,6 +1471,7 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     const sessionId = job.sessionId;
     sessionManager.kill(jobId);
 
+    if (images?.length) pendingImages.set(jobId, images);
     const phase = job.column === 'planning' ? 'plan' as const : 'dev' as const;
     await startClaudeSession(
       { ...job, ...updated } as Job,
@@ -1393,7 +1509,7 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     return updated;
   });
 
-  ipcMain.handle('jobs:edit-plan', async (_event, jobId: string, feedback: string) => {
+  ipcMain.handle('jobs:edit-plan', async (_event, jobId: string, feedback: string, images?: JobImage[]) => {
     const job = getJob(jobId);
     if (!job) throw new Error('Job not found');
     if (job.column !== 'planning' || job.status !== 'plan-ready') {
@@ -1444,13 +1560,14 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
         '--- END USER FEEDBACK ---',
       ].join('\n');
 
+      if (images?.length) pendingImages.set(jobId, images);
       await startClaudeSession(updated, getWindow, batchedSender, 'plan', job.sessionId, revisionPrompt);
     }
 
     return updated;
   });
 
-  ipcMain.handle('jobs:follow-up', async (_event, jobId: string, prompt: string) => {
+  ipcMain.handle('jobs:follow-up', async (_event, jobId: string, prompt: string, images?: JobImage[]) => {
     const job = getJob(jobId);
     if (!job) throw new Error('Job not found');
     if (job.status !== 'completed') throw new Error('Job is not completed');
@@ -1469,7 +1586,8 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     // Accumulate previous dev elapsed time before resetting
     let devElapsed = job.developmentElapsedMs || 0;
     if (job.developmentStartedAt && job.completedAt) {
-      devElapsed += new Date(job.completedAt).getTime() - new Date(job.developmentStartedAt).getTime() - (job.totalPausedMs || 0);
+      const devPausedMs = Math.max(0, (job.totalPausedMs || 0) - (job.planningPausedMs || 0));
+      devElapsed += new Date(job.completedAt).getTime() - new Date(job.developmentStartedAt).getTime() - devPausedMs;
     }
 
     const updated = updateJob(jobId, {
@@ -1502,6 +1620,7 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
         generateTitleInBackground(jobId, prompt, project.path, getWindow, followUps.length - 1, prevContext);
       }
 
+      if (images?.length) pendingImages.set(jobId, images);
       await startClaudeSession(updated, getWindow, batchedSender, 'dev', job.sessionId);
     }
 

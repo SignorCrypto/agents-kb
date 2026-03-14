@@ -1,7 +1,7 @@
-export type { KanbanColumn, JobStatus, Project, OutputEntry, RawMessage, PendingQuestion, FollowUp, Job, JobStepSnapshot, JobFileSnapshot, ShortcutBinding, AppSettings, ThemeMode, ModelChoice, EffortLevel, ModelOption, EffortOption, PromptConfig, PromptId, PreferredEditor, PermissionMode, PermissionModeOption, ProjectColorId, CliHealthStatus, PhaseTokenUsage, Skill, DynamicModelInfo, RewindFilesResult, AccountInfo } from '../../shared/types';
+export type { KanbanColumn, JobStatus, Project, OutputEntry, RawMessage, PendingQuestion, SubQuestion, FollowUp, Job, JobImage, JobStepSnapshot, JobFileSnapshot, ShortcutBinding, AppSettings, ThemeMode, ModelChoice, EffortLevel, ModelOption, EffortOption, PromptConfig, PromptId, PreferredEditor, PermissionMode, PermissionModeOption, ProjectColorId, CliHealthStatus, PhaseTokenUsage, Skill, DynamicModelInfo, RewindFilesResult, AccountInfo } from '../../shared/types';
 export { DEFAULT_SETTINGS, DEFAULT_SHORTCUTS, DEFAULT_COMMIT_PROMPT, DEFAULT_PROMPT_CONFIGS, PROMPT_IDS, MODEL_CATALOG, EFFORT_CATALOG, PROJECT_COLORS, getProjectColor, PERMISSION_MODE_CATALOG } from '../../shared/types';
 
-import type { Project, Job, OutputEntry, RawMessage, PendingQuestion, AppSettings, ModelChoice, EffortLevel, CliHealthStatus, Skill, AccountInfo, RewindFilesResult, ModelOption } from '../../shared/types';
+import type { Project, Job, JobImage, OutputEntry, RawMessage, PendingQuestion, AppSettings, ModelChoice, EffortLevel, CliHealthStatus, Skill, AccountInfo, RewindFilesResult, ModelOption } from '../../shared/types';
 
 // IPC API exposed via preload
 export interface ElectronAPI {
@@ -40,18 +40,17 @@ export interface ElectronAPI {
 
   // Jobs
   jobsList: () => Promise<Job[]>;
-  jobsCreate: (projectId: string, prompt: string, skipPlanning?: boolean, images?: string[], branch?: string, model?: ModelChoice, effort?: EffortLevel) => Promise<Job>;
-  saveImage: (dataBase64: string, filename: string, projectId: string) => Promise<string>;
+  jobsCreate: (projectId: string, prompt: string, skipPlanning?: boolean, images?: JobImage[], branch?: string, model?: ModelChoice, effort?: EffortLevel) => Promise<Job>;
   jobsCancel: (jobId: string) => Promise<void>;
   jobsDelete: (jobId: string, options?: { rollback?: boolean }) => Promise<void>;
-  jobsRetry: (jobId: string, message?: string) => Promise<Job>;
-  jobsRespond: (jobId: string, response: string) => Promise<void>;
-  jobsSteer: (jobId: string, message: string) => Promise<void>;
+  jobsRetry: (jobId: string, message?: string, images?: JobImage[]) => Promise<Job>;
+  jobsRespond: (jobId: string, answers: Record<string, string>) => Promise<void>;
+  jobsSteer: (jobId: string, message: string, images?: JobImage[]) => Promise<void>;
   jobsAcceptPlan: (jobId: string) => Promise<Job>;
-  jobsEditPlan: (jobId: string, feedback: string) => Promise<Job>;
+  jobsEditPlan: (jobId: string, feedback: string, images?: JobImage[]) => Promise<Job>;
   jobsGetDiff: (jobId: string) => Promise<string | null>;
   jobsRejectJob: (jobId: string, snapshotIndex?: number) => Promise<void>;
-  jobsFollowUp: (jobId: string, prompt: string) => Promise<Job>;
+  jobsFollowUp: (jobId: string, prompt: string, images?: JobImage[]) => Promise<Job>;
 
   // File Rewind
   jobsRewindPreview: (jobId: string, userMessageId?: string) => Promise<RewindFilesResult>;
@@ -60,6 +59,10 @@ export interface ElectronAPI {
 
   // Files
   filesList: (projectId: string) => Promise<string[]>;
+  filesOpenInEditor: (projectId: string, filePath: string) => Promise<{ success: boolean; editor?: string; error?: string }>;
+
+  // Editors
+  editorsDetectInstalled: () => Promise<Record<string, boolean>>;
 
   // Settings
   settingsGet: () => Promise<AppSettings>;

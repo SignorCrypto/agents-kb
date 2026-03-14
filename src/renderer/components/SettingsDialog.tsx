@@ -42,6 +42,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const [recordingId, setRecordingId] = useState<string | null>(null);
   const [appVersion, setAppVersion] = useState<string>('');
   const [accountInfo, setAccountInfo] = useState<AccountInfo | null>(null);
+  const [installedEditors, setInstalledEditors] = useState<Record<string, boolean> | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const localRef = useRef(local);
   const saveQueueRef = useRef(Promise.resolve());
@@ -53,6 +54,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     window.electronAPI.appGetVersion().then(setAppVersion).catch(() => { });
     window.electronAPI.accountInfo().then((info) => { if (info) setAccountInfo(info); }).catch(() => { });
+    window.electronAPI.editorsDetectInstalled().then(setInstalledEditors).catch(() => { });
     const unsub = window.electronAPI.onAccountUpdated(setAccountInfo);
     return unsub;
   }, []);
@@ -81,6 +83,19 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
     },
     [persistSettings],
   );
+
+  // Fall back to the first installed editor if the current preference is unavailable
+  useEffect(() => {
+    if (!installedEditors) return;
+    const preferred = local.preferredEditor;
+    const isAvailable = preferred && preferred !== 'auto' && installedEditors[preferred];
+    if (!isAvailable) {
+      const firstInstalled = EDITOR_OPTIONS.find((o) => installedEditors[o.value]);
+      if (firstInstalled) {
+        patchSettings({ preferredEditor: firstInstalled.value });
+      }
+    }
+  }, [installedEditors]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Escape to close (or cancel recording)
   useEffect(() => {
@@ -229,14 +244,26 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             <div>
               <div className="text-[13px] text-content-primary">Preferred Editor</div>
               <div className="text-[11px] text-content-tertiary mt-0.5">
-                Editor to open git projects in (Auto tries Cursor, then VS Code)
+                {installedEditors
+                  ? (() => {
+                      const found = EDITOR_OPTIONS.filter((o) => installedEditors[o.value]);
+                      return found.length > 0
+                        ? `Detected: ${found.map((o) => o.label).join(', ')}`
+                        : 'No supported editors detected';
+                    })()
+                  : 'Detecting installed editors\u2026'}
               </div>
             </div>
-            <SegmentedPicker
-              options={EDITOR_OPTIONS}
-              value={local.preferredEditor ?? 'auto'}
-              onChange={(preferredEditor) => patchSettings({ preferredEditor })}
-            />
+            {installedEditors && (() => {
+              const available = EDITOR_OPTIONS.filter((o) => installedEditors[o.value]);
+              return available.length > 0 ? (
+                <SegmentedPicker
+                  options={available}
+                  value={available.some((o) => o.value === local.preferredEditor) ? local.preferredEditor : available[0].value}
+                  onChange={(preferredEditor) => patchSettings({ preferredEditor })}
+                />
+              ) : null;
+            })()}
           </div>
 
           <div className="flex items-center justify-between">
@@ -516,7 +543,6 @@ const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
 ];
 
 const EDITOR_OPTIONS: { value: PreferredEditor; label: string }[] = [
-  { value: 'auto', label: 'Auto' },
   { value: 'cursor', label: 'Cursor' },
   { value: 'vscode', label: 'VS Code' },
 ];

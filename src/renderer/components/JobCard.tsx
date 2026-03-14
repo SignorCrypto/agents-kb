@@ -190,7 +190,10 @@ function PhaseDurations({ job, now }: { job: Job; now: number }) {
   if (job.developmentStartedAt) {
     const isLive = job.column === 'development' && !job.completedAt;
     const end = job.completedAt ? new Date(job.completedAt).getTime() : (job.column === 'development' ? now : null);
-    const phasePaused = job.column === 'development' ? pausedMs : (job.totalPausedMs || 0);
+    // Subtract planning pauses so only dev pauses count
+    const phasePaused = job.column === 'development'
+      ? Math.max(0, pausedMs - (job.planningPausedMs || 0))
+      : Math.max(0, (job.totalPausedMs || 0) - (job.planningPausedMs || 0));
     if (end) {
       phases.push({
         label: 'DEV',

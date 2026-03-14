@@ -3,12 +3,14 @@ import { useKanbanStore } from '../hooks/useKanbanStore';
 import { useJobOutput } from '../hooks/useJobOutput';
 import { useElectronAPI } from '../hooks/useElectronAPI';
 import { useShortcut } from '../hooks/useShortcut';
+import { useImageAttachment } from '../hooks/useImageAttachment';
 import { Kbd } from './Kbd';
 import { StreamingLog } from './StreamingLog';
 import { DiffViewer } from './DiffViewer';
 import { MentionInput, MentionTextarea } from './MentionInput';
+import { ImageAttachmentBar } from './ImageAttachmentBar';
 import { formatDuration, useNow } from '../utils/duration';
-import type { Job, FollowUp, AppSettings, OutputEntry, PhaseTokenUsage } from '../types/index';
+import type { Job, JobImage, FollowUp, AppSettings, OutputEntry, PhaseTokenUsage, SubQuestion } from '../types/index';
 import { EFFORT_CATALOG, getProjectColor } from '../types/index';
 import { BrainIcon, BranchIcon, TrashIcon, XIcon } from './Icons';
 import { PlanMarkdown } from './PlanMarkdown';
@@ -22,6 +24,8 @@ export function JobDetailPanel() {
   const api = useElectronAPI();
   const [responseText, setResponseText] = useState('');
   const [selectedOptions, setSelectedOptions] = useState<Set<string>>(new Set());
+  const [questionAnswers, setQuestionAnswers] = useState<Record<string, string>>({});
+  const [questionSelections, setQuestionSelections] = useState<Record<string, Set<string>>>({});
   const [followUpText, setFollowUpText] = useState('');
   const [steerText, setSteerText] = useState('');
   const [planFeedbackText, setPlanFeedbackText] = useState('');
@@ -52,28 +56,52 @@ export function JobDetailPanel() {
   const settings = useKanbanStore((s) => s.settings);
 
   const handleRespond = async () => {
-    const isMulti = job?.pendingQuestion?.multiSelect;
-    const text = isMulti && selectedOptions.size > 0
-      ? Array.from(selectedOptions).join(', ')
-      : responseText.trim();
-    if (!text) return;
-    await api.jobsRespond(job.id, text);
+    const pq = job?.pendingQuestion;
+    if (!pq) return;
+
+    const answers: Record<string, string> = {};
+
+    if (pq.subQuestions && pq.subQuestions.length > 0) {
+      // Multi-question mode: build answers from per-question state
+      for (const sq of pq.subQuestions) {
+        const sel = questionSelections[sq.question];
+        if (sel && sel.size > 0) {
+          answers[sq.question] = Array.from(sel).join(', ');
+        } else if (questionAnswers[sq.question]?.trim()) {
+          answers[sq.question] = questionAnswers[sq.question].trim();
+        }
+      }
+      // Require all questions answered
+      if (Object.keys(answers).length < pq.subQuestions.length) return;
+    } else {
+      // Single-question mode (backward compat)
+      const isMulti = pq.multiSelect;
+      const text = isMulti && selectedOptions.size > 0
+        ? Array.from(selectedOptions).join(', ')
+        : responseText.trim();
+      if (!text) return;
+      answers[pq.text] = text;
+    }
+
+    await api.jobsRespond(job.id, answers);
     setResponseText('');
     setSelectedOptions(new Set());
+    setQuestionAnswers({});
+    setQuestionSelections({});
   };
 
-  const handleFollowUp = async () => {
+  const handleFollowUp = async (images?: JobImage[]) => {
     if (!followUpText.trim()) return;
-    const updated = await api.jobsFollowUp(job.id, followUpText.trim());
+    const updated = await api.jobsFollowUp(job.id, followUpText.trim(), images);
     if (updated) {
       useKanbanStore.getState().updateJob(updated);
     }
     setFollowUpText('');
   };
 
-  const handleSteer = async () => {
+  const handleSteer = async (images?: JobImage[]) => {
     if (!steerText.trim()) return;
-    await api.jobsSteer(job.id, steerText.trim());
+    await api.jobsSteer(job.id, steerText.trim(), images);
     setSteerText('');
   };
 
@@ -94,12 +122,12 @@ export function JobDetailPanel() {
     }
   };
 
-  const handleEditPlan = async () => {
+  const handleEditPlan = async (images?: JobImage[]) => {
     const feedback = planFeedbackText.trim();
     if (!feedback || planAction) return;
     setPlanAction('edit');
     try {
-      const updated = await api.jobsEditPlan(job.id, feedback);
+      const updated = await api.jobsEditPlan(job.id, feedback, images);
       if (updated) {
         useKanbanStore.getState().updateJob(updated);
       }
@@ -151,9 +179,9 @@ export function JobDetailPanel() {
     }
   };
 
-  const handleRetry = async () => {
+  const handleRetry = async (images?: JobImage[]) => {
     const msg = retryText.trim();
-    const updated = await api.jobsRetry(job.id, msg || undefined);
+    const updated = await api.jobsRetry(job.id, msg || undefined, images);
     if (updated) {
       useKanbanStore.getState().updateJob(updated);
       setRetryText('');
@@ -340,7 +368,7 @@ export function JobDetailPanel() {
           {doneTab === 'summary' && hasSummary && (
             <div className="flex-1 min-h-0 overflow-y-auto p-3">
               <PlanView content={job.summaryText!} />
-              <EditedFilesList files={editedFiles} />
+              <EditedFilesList files={editedFiles} projectId={job.projectId} />
             </div>
           )}
           {doneTab === 'diff' && hasDiff && (
@@ -360,7 +388,7 @@ export function JobDetailPanel() {
       {isDone && !hasSummary && !hasDiff && (
         <div className="flex-1 min-h-0 p-3 flex flex-col">
           <StreamingLog entries={outputLog} />
-          <EditedFilesList files={editedFiles} />
+          <EditedFilesList files={editedFiles} projectId={job.projectId} />
         </div>
       )}
 
@@ -408,6 +436,10 @@ export function JobDetailPanel() {
         setResponseText={setResponseText}
         selectedOptions={selectedOptions}
         setSelectedOptions={setSelectedOptions}
+        questionAnswers={questionAnswers}
+        setQuestionAnswers={setQuestionAnswers}
+        questionSelections={questionSelections}
+        setQuestionSelections={setQuestionSelections}
         followUpText={followUpText}
         setFollowUpText={setFollowUpText}
         steerText={steerText}
@@ -439,6 +471,10 @@ interface ActionAreaProps {
   setResponseText: (v: string) => void;
   selectedOptions: Set<string>;
   setSelectedOptions: React.Dispatch<React.SetStateAction<Set<string>>>;
+  questionAnswers: Record<string, string>;
+  setQuestionAnswers: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  questionSelections: Record<string, Set<string>>;
+  setQuestionSelections: React.Dispatch<React.SetStateAction<Record<string, Set<string>>>>;
   followUpText: string;
   setFollowUpText: (v: string) => void;
   steerText: string;
@@ -449,34 +485,45 @@ interface ActionAreaProps {
   setRetryText: (v: string) => void;
   planAction: 'accept' | 'edit' | null;
   onRespond: () => void;
-  onFollowUp: () => void;
-  onSteer: () => void;
+  onFollowUp: (images?: JobImage[]) => void;
+  onSteer: (images?: JobImage[]) => void;
   onAcceptPlan: () => void;
-  onEditPlan: () => void;
-  onRetry: () => void;
+  onEditPlan: (images?: JobImage[]) => void;
+  onRetry: (images?: JobImage[]) => void;
 }
 
 function ActionArea({
   job, responseText, setResponseText, selectedOptions, setSelectedOptions,
+  questionAnswers, setQuestionAnswers, questionSelections, setQuestionSelections,
   followUpText, setFollowUpText, steerText, setSteerText,
   planFeedbackText, setPlanFeedbackText, retryText, setRetryText, planAction,
   onRespond, onFollowUp, onSteer, onAcceptPlan, onEditPlan, onRetry,
 }: ActionAreaProps) {
+  const steerImages = useImageAttachment();
+  const planImages = useImageAttachment();
+  const followUpImages = useImageAttachment();
+  const retryImages = useImageAttachment();
+
+  const submitSteer = () => { onSteer(steerImages.toJobImages()); steerImages.clearImages(); };
+  const submitPlanEdit = () => { onEditPlan(planImages.toJobImages()); planImages.clearImages(); };
+  const submitFollowUp = () => { onFollowUp(followUpImages.toJobImages()); followUpImages.clearImages(); };
+  const submitRetry = () => { onRetry(retryImages.toJobImages()); retryImages.clearImages(); };
+
   const planRef = useRef<HTMLDivElement>(null);
-  const planSubmit = planFeedbackText.trim() ? onEditPlan : onAcceptPlan;
+  const planSubmit = planFeedbackText.trim() ? submitPlanEdit : onAcceptPlan;
   useShortcut('submitForm', planSubmit, {
     ref: planRef,
     enabled: job.status === 'plan-ready' && planAction === null,
   });
 
   const followUpRef = useRef<HTMLDivElement>(null);
-  useShortcut('submitForm', onFollowUp, {
+  useShortcut('submitForm', submitFollowUp, {
     ref: followUpRef,
     enabled: job.status === 'completed' && !!followUpText.trim(),
   });
 
   const retryRef = useRef<HTMLDivElement>(null);
-  useShortcut('submitForm', onRetry, {
+  useShortcut('submitForm', submitRetry, {
     ref: retryRef,
     enabled: job.status === 'error',
   });
@@ -499,18 +546,24 @@ function ActionArea({
           <MentionTextarea
             value={steerText}
             onChange={setSteerText}
+            onPaste={steerImages.handlePaste}
+            onDrop={steerImages.handleDrop}
+            onDragOver={steerImages.handleDragOver}
             projectId={job.projectId}
             placeholder="Steer: redirect the current task..."
             rows={3}
             className="w-full resize-none rounded-lg border border-chrome bg-surface-elevated px-3 py-2 text-sm text-content-primary placeholder:text-content-tertiary focus:outline-none focus:ring-2 focus:ring-focus-ring/40"
           />
-          <button
-            onClick={onSteer}
-            disabled={!steerText.trim()}
-            className="w-full flex items-center justify-center gap-1.5 py-1.5 text-sm rounded-lg bg-btn-primary text-content-inverted hover:bg-btn-primary-hover disabled:opacity-40 transition-colors"
-          >
-            Steer
-          </button>
+          <div className="flex items-center gap-2">
+            <ImageAttachmentBar images={steerImages.images} onRemove={steerImages.removeImage} onAddFiles={steerImages.addFiles} compact />
+            <button
+              onClick={submitSteer}
+              disabled={!steerText.trim()}
+              className="ml-auto shrink-0 flex items-center justify-center gap-1.5 px-4 py-1.5 text-sm rounded-lg bg-btn-primary text-content-inverted hover:bg-btn-primary-hover disabled:opacity-40 transition-colors"
+            >
+              Steer
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -523,115 +576,166 @@ function ActionArea({
           <MentionTextarea
             value={planFeedbackText}
             onChange={setPlanFeedbackText}
+            onPaste={planImages.handlePaste}
+            onDrop={planImages.handleDrop}
+            onDragOver={planImages.handleDragOver}
             projectId={job.projectId}
             placeholder="Revision notes — scope, ordering, risks, missing work..."
             rows={3}
             className="w-full resize-none rounded-lg border border-chrome bg-surface-elevated px-3 py-2 text-sm text-content-primary placeholder:text-content-tertiary focus:outline-none focus:ring-2 focus:ring-focus-ring/40"
           />
-          <button
-            onClick={planFeedbackText.trim() ? onEditPlan : onAcceptPlan}
-            disabled={planAction !== null}
-            className="w-full flex items-center justify-center gap-1.5 py-1.5 text-sm rounded-lg bg-btn-primary text-content-inverted hover:bg-btn-primary-hover disabled:opacity-40 transition-colors"
-          >
-            {planAction && <Spinner className="text-content-inverted" />}
-            {planAction === 'edit' ? 'Revising...' : planAction === 'accept' ? 'Starting...' : planFeedbackText.trim() ? 'Request Edit' : 'Start Development'}
-            <Kbd shortcutId="submitForm" />
-          </button>
-        </div>
-      )}
-
-      {/* Pending question */}
-      {job.status === 'waiting-input' && job.pendingQuestion && (
-        <div className="space-y-2">
-          {job.pendingQuestion.header && (
-            <div className="text-[10px] font-semibold text-content-tertiary uppercase tracking-wider">
-              {job.pendingQuestion.header}
-            </div>
-          )}
-          <div className="text-sm font-medium text-semantic-warning">
-            {job.pendingQuestion.text}
-          </div>
-          {job.pendingQuestion.options && (
-            <div className="flex flex-col gap-1">
-              {job.pendingQuestion.options.map((opt, i) => {
-                const isMulti = job.pendingQuestion!.multiSelect;
-                const isSelected = isMulti
-                  ? selectedOptions.has(opt.label)
-                  : responseText === opt.label;
-
-                return (
-                  <button
-                    key={i}
-                    onClick={() => {
-                      if (isMulti) {
-                        setSelectedOptions((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(opt.label)) next.delete(opt.label);
-                          else next.add(opt.label);
-                          return next;
-                        });
-                      } else {
-                        setResponseText(opt.label);
-                      }
-                    }}
-                    className={`text-left px-2.5 py-1.5 rounded border transition-colors ${
-                      isSelected
-                        ? 'border-focus-ring bg-focus-ring/10'
-                        : 'border-chrome hover:bg-surface-tertiary'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      {isMulti && (
-                        <div className={`w-3.5 h-3.5 rounded-sm border flex items-center justify-center shrink-0 ${
-                          isSelected ? 'border-focus-ring bg-focus-ring' : 'border-content-tertiary'
-                        }`}>
-                          {isSelected && (
-                            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M2 5l2.5 2.5L8 3" />
-                            </svg>
-                          )}
-                        </div>
-                      )}
-                      <div>
-                        <div className="text-xs font-medium text-content-primary">{opt.label}</div>
-                        {opt.description && (
-                          <div className="text-[10px] text-content-tertiary mt-0.5">{opt.description}</div>
-                        )}
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-          <div className="flex gap-2">
-            <MentionInput
-              value={job.pendingQuestion?.multiSelect && selectedOptions.size > 0
-                ? Array.from(selectedOptions).join(', ')
-                : responseText}
-              onChange={(v) => {
-                if (!job.pendingQuestion?.multiSelect) {
-                  setResponseText(v);
-                }
-              }}
-              onKeyDown={(e) => e.key === 'Enter' && onRespond()}
-              projectId={job.projectId}
-              placeholder={job.pendingQuestion?.multiSelect ? 'Select options above...' : 'Type your response...'}
-              readOnly={!!job.pendingQuestion?.multiSelect && selectedOptions.size > 0}
-              className="w-full px-3 py-1.5 text-sm rounded-lg border border-chrome bg-surface-elevated focus:outline-none focus:ring-2 focus:ring-focus-ring/40"
-            />
+          <div className="flex items-center gap-2">
+            <ImageAttachmentBar images={planImages.images} onRemove={planImages.removeImage} onAddFiles={planImages.addFiles} compact />
             <button
-              onClick={onRespond}
-              disabled={job.pendingQuestion?.multiSelect
-                ? selectedOptions.size === 0
-                : !responseText.trim()}
-              className="px-4 py-1.5 text-sm rounded-lg bg-btn-primary text-content-inverted hover:bg-btn-primary-hover disabled:opacity-40 transition-colors"
+              onClick={planFeedbackText.trim() ? submitPlanEdit : onAcceptPlan}
+              disabled={planAction !== null}
+              className="ml-auto shrink-0 flex items-center justify-center gap-1.5 px-4 py-1.5 text-sm rounded-lg bg-btn-primary text-content-inverted hover:bg-btn-primary-hover disabled:opacity-40 transition-colors"
             >
-              Send
+              {planAction && <Spinner className="text-content-inverted" />}
+              {planAction === 'edit' ? 'Revising...' : planAction === 'accept' ? 'Starting...' : planFeedbackText.trim() ? 'Request Edit' : 'Start Development'}
+              <Kbd shortcutId="submitForm" />
             </button>
           </div>
         </div>
       )}
+
+      {/* Pending question */}
+      {job.status === 'waiting-input' && job.pendingQuestion && (() => {
+        const pq = job.pendingQuestion;
+        const hasSubQuestions = pq.subQuestions && pq.subQuestions.length > 0;
+
+        // Multi-question mode
+        if (hasSubQuestions) {
+          const allAnswered = pq.subQuestions!.every((sq) => {
+            const sel = questionSelections[sq.question];
+            return (sel && sel.size > 0) || questionAnswers[sq.question]?.trim();
+          });
+
+          return (
+            <div className="space-y-4">
+              {pq.subQuestions!.map((sq, qi) => (
+                <SubQuestionSection
+                  key={qi}
+                  sq={sq}
+                  index={qi}
+                  answer={questionAnswers[sq.question] || ''}
+                  selections={questionSelections[sq.question] || new Set()}
+                  onAnswerChange={(val) => setQuestionAnswers((prev) => ({ ...prev, [sq.question]: val }))}
+                  onToggleSelection={(label) => setQuestionSelections((prev) => {
+                    const current = prev[sq.question] || new Set();
+                    const next = new Set(current);
+                    if (next.has(label)) next.delete(label);
+                    else next.add(label);
+                    return { ...prev, [sq.question]: next };
+                  })}
+                  onSelectSingle={(label) => setQuestionAnswers((prev) => ({ ...prev, [sq.question]: label }))}
+                  projectId={job.projectId}
+                />
+              ))}
+              <button
+                onClick={onRespond}
+                disabled={!allAnswered}
+                className="w-full px-4 py-1.5 text-sm rounded-lg bg-btn-primary text-content-inverted hover:bg-btn-primary-hover disabled:opacity-40 transition-colors"
+              >
+                Send
+              </button>
+            </div>
+          );
+        }
+
+        // Single-question mode (backward compat)
+        return (
+          <div className="space-y-2">
+            {pq.header && (
+              <div className="text-[10px] font-semibold text-content-tertiary uppercase tracking-wider">
+                {pq.header}
+              </div>
+            )}
+            <div className="text-sm font-medium text-semantic-warning">
+              {pq.text}
+            </div>
+            {pq.options && (
+              <div className="flex flex-col gap-1">
+                {pq.options.map((opt, i) => {
+                  const isMulti = pq.multiSelect;
+                  const isSelected = isMulti
+                    ? selectedOptions.has(opt.label)
+                    : responseText === opt.label;
+
+                  return (
+                    <button
+                      key={i}
+                      onClick={() => {
+                        if (isMulti) {
+                          setSelectedOptions((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(opt.label)) next.delete(opt.label);
+                            else next.add(opt.label);
+                            return next;
+                          });
+                        } else {
+                          setResponseText(opt.label);
+                        }
+                      }}
+                      className={`text-left px-2.5 py-1.5 rounded border transition-colors ${
+                        isSelected
+                          ? 'border-focus-ring bg-focus-ring/10'
+                          : 'border-chrome hover:bg-surface-tertiary'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        {isMulti && (
+                          <div className={`w-3.5 h-3.5 rounded-sm border flex items-center justify-center shrink-0 ${
+                            isSelected ? 'border-focus-ring bg-focus-ring' : 'border-content-tertiary'
+                          }`}>
+                            {isSelected && (
+                              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M2 5l2.5 2.5L8 3" />
+                              </svg>
+                            )}
+                          </div>
+                        )}
+                        <div>
+                          <div className="text-xs font-medium text-content-primary">{opt.label}</div>
+                          {opt.description && (
+                            <div className="text-[10px] text-content-tertiary mt-0.5">{opt.description}</div>
+                          )}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <MentionInput
+                value={pq.multiSelect && selectedOptions.size > 0
+                  ? Array.from(selectedOptions).join(', ')
+                  : responseText}
+                onChange={(v) => {
+                  if (!pq.multiSelect) {
+                    setResponseText(v);
+                  }
+                }}
+                onKeyDown={(e) => e.key === 'Enter' && onRespond()}
+                projectId={job.projectId}
+                placeholder={pq.multiSelect ? 'Select options above...' : 'Type your response...'}
+                readOnly={!!pq.multiSelect && selectedOptions.size > 0}
+                className="w-full px-3 py-1.5 text-sm rounded-lg border border-chrome bg-surface-elevated focus:outline-none focus:ring-2 focus:ring-focus-ring/40"
+              />
+              <button
+                onClick={onRespond}
+                disabled={pq.multiSelect
+                  ? selectedOptions.size === 0
+                  : !responseText.trim()}
+                className="px-4 py-1.5 text-sm rounded-lg bg-btn-primary text-content-inverted hover:bg-btn-primary-hover disabled:opacity-40 transition-colors"
+              >
+                Send
+              </button>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Completed — follow-up input */}
       {job.status === 'completed' && (
@@ -639,18 +743,24 @@ function ActionArea({
           <MentionTextarea
             value={followUpText}
             onChange={setFollowUpText}
+            onPaste={followUpImages.handlePaste}
+            onDrop={followUpImages.handleDrop}
+            onDragOver={followUpImages.handleDragOver}
             projectId={job.projectId}
             placeholder="Follow up: e.g. 'also add tests'..."
             rows={3}
             className="w-full resize-none rounded-lg border border-chrome bg-surface-elevated px-3 py-2 text-sm text-content-primary placeholder:text-content-tertiary focus:outline-none focus:ring-2 focus:ring-focus-ring/40"
           />
-          <button
-            onClick={onFollowUp}
-            disabled={!followUpText.trim()}
-            className="w-full flex items-center justify-center gap-1.5 py-1.5 text-sm rounded-lg bg-btn-primary text-content-inverted hover:bg-btn-primary-hover disabled:opacity-40 transition-colors"
-          >
-            Follow Up<Kbd shortcutId="submitForm" />
-          </button>
+          <div className="flex items-center gap-2">
+            <ImageAttachmentBar images={followUpImages.images} onRemove={followUpImages.removeImage} onAddFiles={followUpImages.addFiles} compact />
+            <button
+              onClick={submitFollowUp}
+              disabled={!followUpText.trim()}
+              className="ml-auto shrink-0 flex items-center justify-center gap-1.5 px-4 py-1.5 text-sm rounded-lg bg-btn-primary text-content-inverted hover:bg-btn-primary-hover disabled:opacity-40 transition-colors"
+            >
+              Follow Up<Kbd shortcutId="submitForm" />
+            </button>
+          </div>
         </div>
       )}
 
@@ -665,6 +775,9 @@ function ActionArea({
             <MentionTextarea
               value={retryText}
               onChange={setRetryText}
+              onPaste={retryImages.handlePaste}
+              onDrop={retryImages.handleDrop}
+              onDragOver={retryImages.handleDragOver}
               projectId={job.projectId}
               placeholder={isCancelled
                 ? "Add a message or leave empty to resume..."
@@ -673,15 +786,101 @@ function ActionArea({
               rows={2}
               className="w-full resize-none rounded-lg border border-chrome bg-surface-elevated px-3 py-2 text-sm text-content-primary placeholder:text-content-tertiary focus:outline-none focus:ring-2 focus:ring-focus-ring/40"
             />
-            <button
-              onClick={onRetry}
-              className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg bg-btn-primary text-content-inverted text-sm font-medium hover:bg-btn-primary-hover transition-colors"
-            >
-              {retryText.trim() ? 'Send' : isCancelled ? 'Resume' : 'Retry'}<Kbd shortcutId="submitForm" />
-            </button>
+            <div className="flex items-center gap-2">
+              <ImageAttachmentBar images={retryImages.images} onRemove={retryImages.removeImage} onAddFiles={retryImages.addFiles} compact />
+              <button
+                onClick={submitRetry}
+                className="ml-auto shrink-0 flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-btn-primary text-content-inverted text-sm font-medium hover:bg-btn-primary-hover transition-colors"
+              >
+                {retryText.trim() ? 'Send' : isCancelled ? 'Resume' : 'Retry'}<Kbd shortcutId="submitForm" />
+              </button>
+            </div>
           </div>
         );
       })()}
+    </div>
+  );
+}
+
+/* ─── Sub Question Section ─── */
+
+function SubQuestionSection({
+  sq, index, answer, selections, onAnswerChange, onToggleSelection, onSelectSingle, projectId,
+}: {
+  sq: SubQuestion;
+  index: number;
+  answer: string;
+  selections: Set<string>;
+  onAnswerChange: (val: string) => void;
+  onToggleSelection: (label: string) => void;
+  onSelectSingle: (label: string) => void;
+  projectId: string;
+}) {
+  return (
+    <div className="space-y-1.5">
+      {sq.header && (
+        <div className="text-[10px] font-semibold text-content-tertiary uppercase tracking-wider">
+          {sq.header}
+        </div>
+      )}
+      <div className="text-sm font-medium text-semantic-warning">
+        {sq.question}
+      </div>
+      {sq.options && sq.options.length > 0 ? (
+        <div className="flex flex-col gap-1">
+          {sq.options.map((opt, i) => {
+            const isSelected = sq.multiSelect
+              ? selections.has(opt.label)
+              : answer === opt.label;
+
+            return (
+              <button
+                key={i}
+                onClick={() => {
+                  if (sq.multiSelect) {
+                    onToggleSelection(opt.label);
+                  } else {
+                    onSelectSingle(opt.label);
+                  }
+                }}
+                className={`text-left px-2.5 py-1.5 rounded border transition-colors ${
+                  isSelected
+                    ? 'border-focus-ring bg-focus-ring/10'
+                    : 'border-chrome hover:bg-surface-tertiary'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  {sq.multiSelect && (
+                    <div className={`w-3.5 h-3.5 rounded-sm border flex items-center justify-center shrink-0 ${
+                      isSelected ? 'border-focus-ring bg-focus-ring' : 'border-content-tertiary'
+                    }`}>
+                      {isSelected && (
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M2 5l2.5 2.5L8 3" />
+                        </svg>
+                      )}
+                    </div>
+                  )}
+                  <div>
+                    <div className="text-xs font-medium text-content-primary">{opt.label}</div>
+                    {opt.description && (
+                      <div className="text-[10px] text-content-tertiary mt-0.5">{opt.description}</div>
+                    )}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <MentionInput
+          value={answer}
+          onChange={onAnswerChange}
+          projectId={projectId}
+          placeholder="Type your response..."
+          className="w-full px-3 py-1.5 text-sm rounded-lg border border-chrome bg-surface-elevated focus:outline-none focus:ring-2 focus:ring-focus-ring/40"
+        />
+      )}
     </div>
   );
 }
@@ -963,8 +1162,14 @@ function extractEditedFiles(entries: OutputEntry[]): EditedFile[] {
   return Array.from(seen.entries()).map(([path, tool]) => ({ path, tool }));
 }
 
-function EditedFilesList({ files }: { files: EditedFile[] }) {
+function EditedFilesList({ files, projectId }: { files: EditedFile[]; projectId: string }) {
   if (files.length === 0) return null;
+
+  const handleFileClick = (filePath: string) => {
+    window.electronAPI.filesOpenInEditor(projectId, filePath).catch((err) => {
+      console.error('[EditedFilesList] Failed to open file:', err);
+    });
+  };
 
   return (
     <div className="mt-3">
@@ -984,7 +1189,9 @@ function EditedFilesList({ files }: { files: EditedFile[] }) {
           return (
             <div
               key={file.path}
-              className="flex items-center gap-2 px-2 py-1 rounded hover:bg-surface-tertiary/40 transition-colors group"
+              className="flex items-center gap-2 px-2 py-1 rounded hover:bg-surface-tertiary/40 transition-colors group cursor-pointer"
+              onClick={() => handleFileClick(file.path)}
+              title={`Open ${file.path} in editor`}
             >
               {/* File icon */}
               <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-content-tertiary">
@@ -996,6 +1203,12 @@ function EditedFilesList({ files }: { files: EditedFile[] }) {
                 <span className="text-content-tertiary">{shortDir}</span>
                 <span className="text-content-primary font-medium">{fileName}</span>
               </span>
+              {/* Open-in-editor icon (visible on hover) */}
+              <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-content-tertiary/60 opacity-0 group-hover:opacity-100 transition-opacity ml-auto">
+                <path d="M7 3H3a1 1 0 00-1 1v9a1 1 0 001 1h9a1 1 0 001-1v-4" />
+                <path d="M14 2l-7 7" />
+                <path d="M10 2h4v4" />
+              </svg>
               {/* Tool badge */}
               <span className="shrink-0 text-[9px] font-medium text-content-tertiary/60 uppercase tracking-wider opacity-0 group-hover:opacity-100 transition-opacity">
                 {file.tool === 'Write' ? 'new' : 'edit'}
