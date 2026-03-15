@@ -1,5 +1,5 @@
 import { app, ipcMain, dialog, BrowserWindow, nativeTheme, shell } from 'electron';
-import { query as sdkQuery } from '@anthropic-ai/claude-agent-sdk';
+import { query as sdkQuery } from './sdk';
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import fs from 'fs';
@@ -620,6 +620,7 @@ async function runClaudeStructured<T>(
     outputFormat: { type: 'json_schema', schema },
   };
 
+
   sdkOptions.model = options?.model || 'haiku';
   sdkOptions.effort = options?.effort || 'low';
 
@@ -688,6 +689,7 @@ async function runClaudeEditTask(
     settingSources: ['user', 'project'],
   };
 
+
   if (options?.model) {
     sdkOptions.model = options.model;
   }
@@ -730,6 +732,7 @@ async function rewindViaResume(
     env,
     settingSources: ['user', 'project'],
   };
+
 
   let q;
   try {

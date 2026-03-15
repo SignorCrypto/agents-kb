@@ -2,8 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { EventEmitter } from "events";
 import { v4 as uuidv4 } from "uuid";
-import { app } from "electron";
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import { query } from "./sdk";
 import type { PermissionResult, CanUseTool } from "@anthropic-ai/claude-agent-sdk";
 import type { OutputEntry, PendingQuestion, QuestionOption, SubQuestion, PermissionMode, Skill, JobImage } from "../shared/types";
 
@@ -158,15 +157,6 @@ export class ClaudeSession extends EventEmitter {
     const env = { ...process.env };
     delete env.CLAUDECODE;
     sdkOptions.env = env;
-
-    // In packaged Electron apps, the SDK's cli.js is inside asar.unpacked but
-    // the SDK resolves it from the asar archive path. Point it to the unpacked copy.
-    if (app.isPackaged) {
-      const sdkDir = path.dirname(require.resolve("@anthropic-ai/claude-agent-sdk"));
-      const unpackedDir = sdkDir.replace("app.asar", "app.asar.unpacked");
-      sdkOptions.pathToClaudeCodeExecutable = path.join(unpackedDir, "cli.js");
-      console.log("[claude-session] Using unpacked CLI:", sdkOptions.pathToClaudeCodeExecutable);
-    }
 
     // Capture stderr from the SDK subprocess for debugging
     sdkOptions.stderr = (data: string) => {

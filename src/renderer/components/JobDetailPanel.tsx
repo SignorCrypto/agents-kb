@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from 'react';
+import { useState, useRef, useMemo, useEffect } from 'react';
 import { useKanbanStore } from '../hooks/useKanbanStore';
 import { useJobOutput } from '../hooks/useJobOutput';
 import { useElectronAPI } from '../hooks/useElectronAPI';
@@ -499,10 +499,17 @@ function ActionArea({
   planFeedbackText, setPlanFeedbackText, retryText, setRetryText, planAction,
   onRespond, onFollowUp, onSteer, onAcceptPlan, onEditPlan, onRetry,
 }: ActionAreaProps) {
+  const [currentQuestionStep, setCurrentQuestionStep] = useState(0);
   const steerImages = useImageAttachment();
   const planImages = useImageAttachment();
   const followUpImages = useImageAttachment();
   const retryImages = useImageAttachment();
+
+  // Reset step when a new question batch arrives
+  const questionId = job?.pendingQuestion?.questionId;
+  useEffect(() => {
+    setCurrentQuestionStep(0);
+  }, [questionId]);
 
   const submitSteer = () => { onSteer(steerImages.toJobImages()); steerImages.clearImages(); };
   const submitPlanEdit = () => { onEditPlan(planImages.toJobImages()); planImages.clearImages(); };
@@ -604,41 +611,125 @@ function ActionArea({
         const pq = job.pendingQuestion;
         const hasSubQuestions = pq.subQuestions && pq.subQuestions.length > 0;
 
-        // Multi-question mode
+        // Multi-question mode — sequential, one at a time
         if (hasSubQuestions) {
-          const allAnswered = pq.subQuestions!.every((sq) => {
+          const subQs = pq.subQuestions!;
+          const total = subQs.length;
+          const step = Math.min(currentQuestionStep, total - 1);
+          const currentSq = subQs[step];
+          const isLastStep = step === total - 1;
+
+          const isCurrentAnswered = (() => {
+            const sel = questionSelections[currentSq.question];
+            return (sel && sel.size > 0) || !!questionAnswers[currentSq.question]?.trim();
+          })();
+
+          const getAnswerSummary = (sq: SubQuestion) => {
             const sel = questionSelections[sq.question];
-            return (sel && sel.size > 0) || questionAnswers[sq.question]?.trim();
-          });
+            if (sel && sel.size > 0) return Array.from(sel).join(', ');
+            if (questionAnswers[sq.question]?.trim()) return questionAnswers[sq.question].trim();
+            return '';
+          };
 
           return (
-            <div className="space-y-4">
-              {pq.subQuestions!.map((sq, qi) => (
-                <SubQuestionSection
-                  key={qi}
-                  sq={sq}
-                  index={qi}
-                  answer={questionAnswers[sq.question] || ''}
-                  selections={questionSelections[sq.question] || new Set()}
-                  onAnswerChange={(val) => setQuestionAnswers((prev) => ({ ...prev, [sq.question]: val }))}
-                  onToggleSelection={(label) => setQuestionSelections((prev) => {
-                    const current = prev[sq.question] || new Set();
-                    const next = new Set(current);
-                    if (next.has(label)) next.delete(label);
-                    else next.add(label);
-                    return { ...prev, [sq.question]: next };
-                  })}
-                  onSelectSingle={(label) => setQuestionAnswers((prev) => ({ ...prev, [sq.question]: label }))}
-                  projectId={job.projectId}
-                />
-              ))}
-              <button
-                onClick={onRespond}
-                disabled={!allAnswered}
-                className="w-full px-4 py-1.5 text-sm rounded-lg bg-btn-primary text-content-inverted hover:bg-btn-primary-hover disabled:opacity-40 transition-colors"
-              >
-                Send
-              </button>
+            <div className="space-y-3">
+              {/* Previously answered questions — compact summary */}
+              {step > 0 && (
+                <div className="space-y-1">
+                  {subQs.slice(0, step).map((sq, qi) => (
+                    <button
+                      key={qi}
+                      onClick={() => setCurrentQuestionStep(qi)}
+                      className="w-full text-left px-2.5 py-1.5 rounded border border-chrome hover:bg-surface-tertiary transition-colors group"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          {sq.header && (
+                            <span className="text-[10px] font-semibold text-content-tertiary uppercase tracking-wider mr-2">
+                              {sq.header}
+                            </span>
+                          )}
+                          <span className="text-xs text-content-secondary truncate">
+                            {getAnswerSummary(sq)}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-content-tertiary opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                          Edit
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Step indicator */}
+              <div className="flex items-center justify-between">
+                <div className="text-[10px] text-content-tertiary font-medium">
+                  {step + 1} / {total}
+                </div>
+                {/* Step dots */}
+                <div className="flex gap-1">
+                  {subQs.map((_, i) => (
+                    <div
+                      key={i}
+                      className={`w-1.5 h-1.5 rounded-full transition-colors ${
+                        i === step
+                          ? 'bg-focus-ring'
+                          : i < step
+                            ? 'bg-content-tertiary'
+                            : 'bg-chrome'
+                      }`}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Current question */}
+              <SubQuestionSection
+                sq={currentSq}
+                index={step}
+                answer={questionAnswers[currentSq.question] || ''}
+                selections={questionSelections[currentSq.question] || new Set()}
+                onAnswerChange={(val) => setQuestionAnswers((prev) => ({ ...prev, [currentSq.question]: val }))}
+                onToggleSelection={(label) => setQuestionSelections((prev) => {
+                  const current = prev[currentSq.question] || new Set();
+                  const next = new Set(current);
+                  if (next.has(label)) next.delete(label);
+                  else next.add(label);
+                  return { ...prev, [currentSq.question]: next };
+                })}
+                onSelectSingle={(label) => setQuestionAnswers((prev) => ({ ...prev, [currentSq.question]: label }))}
+                projectId={job.projectId}
+              />
+
+              {/* Navigation buttons */}
+              <div className="flex gap-2">
+                {step > 0 && (
+                  <button
+                    onClick={() => setCurrentQuestionStep((s) => s - 1)}
+                    className="px-4 py-1.5 text-sm rounded-lg border border-chrome text-content-secondary hover:bg-surface-tertiary transition-colors"
+                  >
+                    Back
+                  </button>
+                )}
+                {isLastStep ? (
+                  <button
+                    onClick={onRespond}
+                    disabled={!isCurrentAnswered}
+                    className="ml-auto px-4 py-1.5 text-sm rounded-lg bg-btn-primary text-content-inverted hover:bg-btn-primary-hover disabled:opacity-40 transition-colors"
+                  >
+                    Send
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setCurrentQuestionStep((s) => s + 1)}
+                    disabled={!isCurrentAnswered}
+                    className="ml-auto px-4 py-1.5 text-sm rounded-lg bg-btn-primary text-content-inverted hover:bg-btn-primary-hover disabled:opacity-40 transition-colors"
+                  >
+                    Next
+                  </button>
+                )}
+              </div>
             </div>
           );
         }
@@ -827,50 +918,64 @@ function SubQuestionSection({
         {sq.question}
       </div>
       {sq.options && sq.options.length > 0 ? (
-        <div className="flex flex-col gap-1">
-          {sq.options.map((opt, i) => {
-            const isSelected = sq.multiSelect
-              ? selections.has(opt.label)
-              : answer === opt.label;
+        <div className="space-y-2">
+          <div className="flex flex-col gap-1">
+            {sq.options.map((opt, i) => {
+              const isSelected = sq.multiSelect
+                ? selections.has(opt.label)
+                : answer === opt.label;
 
-            return (
-              <button
-                key={i}
-                onClick={() => {
-                  if (sq.multiSelect) {
-                    onToggleSelection(opt.label);
-                  } else {
-                    onSelectSingle(opt.label);
-                  }
-                }}
-                className={`text-left px-2.5 py-1.5 rounded border transition-colors ${
-                  isSelected
-                    ? 'border-focus-ring bg-focus-ring/10'
-                    : 'border-chrome hover:bg-surface-tertiary'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  {sq.multiSelect && (
-                    <div className={`w-3.5 h-3.5 rounded-sm border flex items-center justify-center shrink-0 ${
-                      isSelected ? 'border-focus-ring bg-focus-ring' : 'border-content-tertiary'
-                    }`}>
-                      {isSelected && (
-                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M2 5l2.5 2.5L8 3" />
-                        </svg>
+              return (
+                <button
+                  key={i}
+                  onClick={() => {
+                    if (sq.multiSelect) {
+                      onToggleSelection(opt.label);
+                    } else {
+                      onSelectSingle(opt.label);
+                    }
+                  }}
+                  className={`text-left px-2.5 py-1.5 rounded border transition-colors ${
+                    isSelected
+                      ? 'border-focus-ring bg-focus-ring/10'
+                      : 'border-chrome hover:bg-surface-tertiary'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    {sq.multiSelect && (
+                      <div className={`w-3.5 h-3.5 rounded-sm border flex items-center justify-center shrink-0 ${
+                        isSelected ? 'border-focus-ring bg-focus-ring' : 'border-content-tertiary'
+                      }`}>
+                        {isSelected && (
+                          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M2 5l2.5 2.5L8 3" />
+                          </svg>
+                        )}
+                      </div>
+                    )}
+                    <div>
+                      <div className="text-xs font-medium text-content-primary">{opt.label}</div>
+                      {opt.description && (
+                        <div className="text-[10px] text-content-tertiary mt-0.5">{opt.description}</div>
                       )}
                     </div>
-                  )}
-                  <div>
-                    <div className="text-xs font-medium text-content-primary">{opt.label}</div>
-                    {opt.description && (
-                      <div className="text-[10px] text-content-tertiary mt-0.5">{opt.description}</div>
-                    )}
                   </div>
-                </div>
-              </button>
-            );
-          })}
+                </button>
+              );
+            })}
+          </div>
+          {/* Custom response — allows typing instead of selecting an option */}
+          <MentionInput
+            value={sq.multiSelect ? '' : (sq.options!.some((o) => o.label === answer) ? '' : answer)}
+            onChange={(v) => {
+              if (!sq.multiSelect) {
+                onAnswerChange(v);
+              }
+            }}
+            projectId={projectId}
+            placeholder="Or type a custom response..."
+            className="w-full px-3 py-1.5 text-xs rounded-lg border border-chrome bg-surface-elevated focus:outline-none focus:ring-2 focus:ring-focus-ring/40 text-content-tertiary placeholder:text-content-tertiary"
+          />
         </div>
       ) : (
         <MentionInput
