@@ -1,6 +1,6 @@
 import { useState, useRef, useMemo, useEffect } from 'react';
 import { useKanbanStore } from '../hooks/useKanbanStore';
-import { useJobOutput } from '../hooks/useJobOutput';
+import { useJobOutput, useJobOutputAnalysis } from '../hooks/useJobOutput';
 import { useElectronAPI } from '../hooks/useElectronAPI';
 import { useShortcut } from '../hooks/useShortcut';
 import { useImageAttachment, draftImageToAttachedImage, attachedImageToDraftImage } from '../hooks/useImageAttachment';
@@ -10,7 +10,7 @@ import { DiffViewer } from './DiffViewer';
 import { MentionInput, MentionTextarea } from './MentionInput';
 import { ImageAttachmentBar } from './ImageAttachmentBar';
 import { formatDuration, useNow } from '../utils/duration';
-import type { Job, JobImage, JobComposerDraft, PendingQuestionDraft, JobDetailDrafts, FollowUp, AppSettings, OutputEntry, PhaseTokenUsage, SubQuestion } from '../types/index';
+import type { Job, JobImage, JobComposerDraft, PendingQuestionDraft, JobDetailDrafts, FollowUp, AppSettings, PhaseTokenUsage, SubQuestion } from '../types/index';
 import { getProjectColor, getThinkingDisplay, normalizeEffortForThinking } from '../types/index';
 import { BrainIcon, BranchIcon, StopIcon, TrashIcon, XIcon } from './Icons';
 import { PlanMarkdown } from './PlanMarkdown';
@@ -69,10 +69,11 @@ function draftImagesToAttachedImages(draft?: JobComposerDraft): ReturnType<typeo
 
 export function JobDetailPanel() {
   const selectedJobId = useKanbanStore((s) => s.selectedJobId);
-  const jobs = useKanbanStore((s) => s.jobs);
-  const projects = useKanbanStore((s) => s.projects);
+  const job = useKanbanStore((s) => s.jobs.find((j) => j.id === selectedJobId));
+  const project = useKanbanStore((s) => job ? s.projects.find((p) => p.id === job.projectId) : undefined);
   const selectJob = useKanbanStore((s) => s.selectJob);
   const removeJob = useKanbanStore((s) => s.removeJob);
+  const settings = useKanbanStore((s) => s.settings);
   const api = useElectronAPI();
   const [responseText, setResponseText] = useState('');
   const [selectedOptions, setSelectedOptionsState] = useState<Set<string>>(new Set());
@@ -90,10 +91,9 @@ export function JobDetailPanel() {
   const [deleteLoading, setDeleteLoading] = useState(false);
   const draftTimeoutsRef = useRef<Partial<Record<DraftSectionKey, ReturnType<typeof setTimeout>>>>({});
 
-  const job = jobs.find((j) => j.id === selectedJobId);
   const questionId = job?.pendingQuestion?.questionId;
   const outputLog = useJobOutput(selectedJobId || '');
-  const liveEditedFiles = useMemo(() => extractEditedFiles(outputLog), [outputLog]);
+  const { sections: outputSections, editedFiles: liveEditedFiles } = useJobOutputAnalysis(selectedJobId || '', outputLog);
   const initialSteerImages = useMemo(() => draftImagesToAttachedImages(job?.jobDetailDrafts?.steer), [job?.id]);
   const initialPlanImages = useMemo(() => draftImagesToAttachedImages(job?.jobDetailDrafts?.planEdit), [job?.id]);
   const initialFollowUpImages = useMemo(() => draftImagesToAttachedImages(job?.jobDetailDrafts?.followUp), [job?.id]);
@@ -374,9 +374,7 @@ export function JobDetailPanel() {
 
   if (!job) return null;
 
-  const project = projects.find((p) => p.id === job.projectId);
   const projectColor = getProjectColor(project?.color);
-  const settings = useKanbanStore((s) => s.settings);
 
   const handleRespond = async () => {
     const pq = job?.pendingQuestion;
@@ -687,7 +685,7 @@ export function JobDetailPanel() {
           )}
           {doneTab === 'log' && (
             <div className="flex-1 min-h-0 p-3 flex flex-col">
-              <StreamingLog entries={outputLog} />
+              <StreamingLog sections={outputSections} entryCount={outputLog.length} />
             </div>
           )}
         </div>
@@ -696,7 +694,7 @@ export function JobDetailPanel() {
       {/* Done state without summary or diff — show edited files + log */}
       {isDone && !hasSummary && !hasDiff && (
         <div className="flex-1 min-h-0 p-3 flex flex-col">
-          <StreamingLog entries={outputLog} />
+          <StreamingLog sections={outputSections} entryCount={outputLog.length} />
           <EditedFilesList files={editedFiles} projectId={job.projectId} />
         </div>
       )}
@@ -726,7 +724,7 @@ export function JobDetailPanel() {
           )}
           {planTab === 'log' && (
             <div className="flex-1 min-h-0 p-3 flex flex-col">
-              <StreamingLog entries={outputLog} />
+              <StreamingLog sections={outputSections} entryCount={outputLog.length} />
             </div>
           )}
         </div>
@@ -734,7 +732,7 @@ export function JobDetailPanel() {
 
       {!isDone && !isPlanReady && (
         <div className="flex-1 min-h-0 p-3 flex flex-col">
-          <StreamingLog entries={outputLog} />
+          <StreamingLog sections={outputSections} entryCount={outputLog.length} />
         </div>
       )}
 
@@ -1572,52 +1570,6 @@ function PromptTimeline({
 interface EditedFile {
   path: string;
   tool: string; // 'Write' | 'Edit' | etc.
-}
-
-const FILE_TOOLS = new Set(['Write', 'Edit', 'NotebookEdit']);
-
-function extractEditedFiles(entries: OutputEntry[]): EditedFile[] {
-  const seen = new Map<string, string>(); // path -> tool
-  let currentTool = '';
-  let toolBuffer = '';
-
-  const flush = () => {
-    if (FILE_TOOLS.has(currentTool) && toolBuffer) {
-      try {
-        const parsed = JSON.parse(toolBuffer);
-        const filePath = (parsed.file_path || parsed.notebook_path) as string | undefined;
-        if (filePath && !seen.has(filePath)) {
-          seen.set(filePath, currentTool);
-        }
-      } catch { /* incomplete JSON */ }
-    }
-    currentTool = '';
-    toolBuffer = '';
-  };
-
-  for (const entry of entries) {
-    if (entry.type === 'tool-use') {
-      if (entry.toolName && entry.content === '') {
-        // New tool block start — flush previous
-        flush();
-        currentTool = entry.toolName;
-      } else if (entry.toolName && entry.content) {
-        // Full tool-use entry (old format)
-        flush();
-        currentTool = entry.toolName;
-        toolBuffer = entry.content;
-        flush();
-      } else {
-        // Delta — append
-        toolBuffer += entry.content;
-      }
-    } else {
-      flush();
-    }
-  }
-  flush();
-
-  return Array.from(seen.entries()).map(([path, tool]) => ({ path, tool }));
 }
 
 function EditedFilesList({ files, projectId }: { files: EditedFile[]; projectId: string }) {

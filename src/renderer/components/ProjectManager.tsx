@@ -16,6 +16,39 @@ interface BranchStatus {
   dirtyFiles: number;
 }
 
+const BRANCH_STATUS_POLL_MS = 30000;
+const TERMINAL_JOB_STATUSES = new Set<string>(['completed', 'rejected', 'error']);
+
+function areBranchStatusListsEqual(left: BranchStatus[] | undefined, right: BranchStatus[] | undefined): boolean {
+  if (left === right) return true;
+  if (!left || !right) return !left && !right;
+  if (left.length !== right.length) return false;
+  for (let i = 0; i < left.length; i += 1) {
+    const a = left[i];
+    const b = right[i];
+    if (
+      a.name !== b.name ||
+      a.isCurrent !== b.isCurrent ||
+      a.ahead !== b.ahead ||
+      a.dirtyFiles !== b.dirtyFiles
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function areBranchStatusMapsEqual(left: Map<string, BranchStatus[]>, right: Map<string, BranchStatus[]>): boolean {
+  if (left === right) return true;
+  if (left.size !== right.size) return false;
+  for (const [projectId, leftStatuses] of left) {
+    if (!areBranchStatusListsEqual(leftStatuses, right.get(projectId))) {
+      return false;
+    }
+  }
+  return true;
+}
+
 const COLUMN_ORDER: KanbanColumn[] = ['planning', 'development', 'done'];
 const COLUMN_DOT_CLASSES: Record<KanbanColumn, string> = {
   planning: 'bg-column-planning',
@@ -414,24 +447,76 @@ export function ProjectManager() {
   const [commitPhase, setCommitPhase] = useState<'compose' | 'push'>('compose');
   const [generatingMessage, setGeneratingMessage] = useState(false);
   const [clearedCompletedCount, setClearedCompletedCount] = useState(0);
+  const previousStatusesRef = useRef<Map<string, string>>(new Map());
+
+  const gitProjects = useMemo(
+    () => projects.filter((project) => project.isGitRepo !== false),
+    [projects],
+  );
+
+  const refreshProjectBranchStatus = useCallback(async (projectId: string) => {
+    if (!gitProjects.some((project) => project.id === projectId)) return null;
+
+    const updated = await api.gitBranchesStatus(projectId);
+    setBranchStatuses((prev) => {
+      const next = new Map(prev);
+      if (updated && updated.length > 0) next.set(projectId, updated);
+      else next.delete(projectId);
+      return areBranchStatusMapsEqual(prev, next) ? prev : next;
+    });
+    return updated;
+  }, [api, gitProjects]);
+
+  const refreshAllBranchStatuses = useCallback(async () => {
+    const next = new Map<string, BranchStatus[]>();
+    await Promise.all(
+      gitProjects.map(async (project) => {
+        const result = await api.gitBranchesStatus(project.id);
+        if (result && result.length > 0) next.set(project.id, result);
+      }),
+    );
+    setBranchStatuses((prev) => areBranchStatusMapsEqual(prev, next) ? prev : next);
+  }, [api, gitProjects]);
 
   // Fetch branch statuses for all projects
   useEffect(() => {
-    let cancelled = false;
-    const fetchAll = async () => {
-      const newMap = new Map<string, BranchStatus[]>();
-      await Promise.all(
-        projects.filter((p) => p.isGitRepo !== false).map(async (p) => {
-          const result = await api.gitBranchesStatus(p.id);
-          if (result && result.length > 0) newMap.set(p.id, result);
-        }),
-      );
-      if (!cancelled) setBranchStatuses(newMap);
+    void refreshAllBranchStatuses();
+    const interval = setInterval(() => {
+      void refreshAllBranchStatuses();
+    }, BRANCH_STATUS_POLL_MS);
+    return () => clearInterval(interval);
+  }, [refreshAllBranchStatuses]);
+
+  useEffect(() => {
+    const handleFocus = () => {
+      void refreshAllBranchStatuses();
     };
-    fetchAll();
-    const interval = setInterval(fetchAll, 15000);
-    return () => { cancelled = true; clearInterval(interval); };
-  }, [projects, api]);
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [refreshAllBranchStatuses]);
+
+  useEffect(() => {
+    const previous = previousStatusesRef.current;
+    const refreshProjectIds = new Set<string>();
+
+    for (const job of jobs) {
+      const previousStatus = previous.get(job.id);
+      if (previousStatus && previousStatus !== job.status && TERMINAL_JOB_STATUSES.has(job.status)) {
+        refreshProjectIds.add(job.projectId);
+      }
+      previous.set(job.id, job.status);
+    }
+
+    for (const jobId of Array.from(previous.keys())) {
+      if (!jobs.some((job) => job.id === jobId)) {
+        previous.delete(jobId);
+      }
+    }
+
+    for (const projectId of refreshProjectIds) {
+      void refreshProjectBranchStatus(projectId);
+    }
+  }, [jobs, refreshProjectBranchStatus]);
 
   const handlePush = async (projectId: string, branch: string) => {
     setPushing(true);
@@ -443,14 +528,7 @@ export function ProjectManager() {
       return;
     }
     setPushConfirm(null);
-    // Refresh branch statuses after push
-    const updated = await api.gitBranchesStatus(projectId);
-    setBranchStatuses((prev) => {
-      const next = new Map(prev);
-      if (updated && updated.length > 0) next.set(projectId, updated);
-      else next.delete(projectId);
-      return next;
-    });
+    await refreshProjectBranchStatus(projectId);
   };
 
   const openCommitDialog = async (projectId: string, branch: string) => {
@@ -488,14 +566,7 @@ export function ProjectManager() {
 
     setCommitLoading(false);
 
-    // Refresh branch statuses
-    const updated = await api.gitBranchesStatus(commitDialog.projectId);
-    setBranchStatuses((prev) => {
-      const next = new Map(prev);
-      if (updated && updated.length > 0) next.set(commitDialog.projectId, updated);
-      else next.delete(commitDialog.projectId);
-      return next;
-    });
+    const updated = await refreshProjectBranchStatus(commitDialog.projectId);
 
     // Check if there are commits to push now
     const branchAfter = updated?.find((b) => b.name === commitDialog.branch);
@@ -520,14 +591,7 @@ export function ProjectManager() {
       return;
     }
     setCommitDialog(null);
-    // Refresh branch statuses
-    const updated = await api.gitBranchesStatus(commitDialog.projectId);
-    setBranchStatuses((prev) => {
-      const next = new Map(prev);
-      if (updated && updated.length > 0) next.set(commitDialog.projectId, updated);
-      else next.delete(commitDialog.projectId);
-      return next;
-    });
+    await refreshProjectBranchStatus(commitDialog.projectId);
   };
 
   // Compute per-project job counts by column + notification flag

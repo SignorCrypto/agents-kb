@@ -30,9 +30,8 @@ const statusColors: Record<JobStatus, string> = {
 
 export const JobCard = memo(function JobCard({ job }: JobCardProps) {
   const selectJob = useKanbanStore((s) => s.selectJob);
-  const selectedJobId = useKanbanStore((s) => s.selectedJobId);
-  const projects = useKanbanStore((s) => s.projects);
-  const project = projects.find((p) => p.id === job.projectId);
+  const isSelected = useKanbanStore((s) => s.selectedJobId === job.id);
+  const project = useKanbanStore((s) => s.projects.find((p) => p.id === job.projectId));
   const projectColor = getProjectColor(project?.color);
   const [expanded, setExpanded] = useState(false);
   const [isClamped, setIsClamped] = useState(false);
@@ -52,7 +51,6 @@ export const JobCard = memo(function JobCard({ job }: JobCardProps) {
     return () => ro.disconnect();
   }, [job.prompt, job.title, expanded]);
 
-  const isSelected = selectedJobId === job.id;
   const needsAttention = job.status === 'waiting-input' || job.status === 'plan-ready';
 
   const handleClick = useCallback(() => {

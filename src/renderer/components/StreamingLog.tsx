@@ -1,18 +1,10 @@
 import { useEffect, useRef, useMemo, useState } from 'react';
-import type { OutputEntry } from '../types/index';
+import type { OutputSection } from '../hooks/useJobOutput';
 import { PlanMarkdown } from './PlanMarkdown';
 
 interface StreamingLogProps {
-  entries: OutputEntry[];
-}
-
-interface Section {
-  kind: 'text' | 'thinking' | 'tool' | 'system' | 'error' | 'plan' | 'rate-limit' | 'progress';
-  content: string;
-  toolName?: string;
-  toolResult?: string;
-  isStreaming?: boolean;
-  timestamp: string;
+  sections: OutputSection[];
+  entryCount: number;
 }
 
 function tryParseToolJson(content: string): Record<string, unknown> | null {
@@ -78,107 +70,6 @@ function inferToolName(parsed: Record<string, unknown> | null, content: string):
   if (/"pattern"\s*:/.test(content)) return 'Glob';
 
   return undefined;
-}
-
-function buildSections(entries: OutputEntry[]): Section[] {
-  const sections: Section[] = [];
-
-  for (const entry of entries) {
-    const last = sections[sections.length - 1];
-    if (last?.kind === 'tool' && entry.type !== 'tool-use' && last.isStreaming) {
-      last.isStreaming = false;
-    }
-
-    if (entry.type === 'plan') {
-      sections.push({ kind: 'plan', content: entry.content, timestamp: entry.timestamp });
-    } else if (entry.type === 'tool-use') {
-      if (entry.toolName && entry.content === '') {
-        // content_block_start marker — start new tool section
-        sections.push({ kind: 'tool', content: '', toolName: entry.toolName, isStreaming: true, timestamp: entry.timestamp });
-      } else if (last?.kind === 'tool' && !entry.toolName) {
-        // Delta without toolName — append to current tool section
-        last.content += entry.content;
-        last.isStreaming = true;
-      } else if (last?.kind === 'tool' && entry.toolName && entry.toolName === last.toolName) {
-        // Delta with same toolName — append to current tool section (old logs)
-        last.content += entry.content;
-        last.isStreaming = true;
-      } else if (entry.toolName && entry.content) {
-        // Full tool-use with name and content — new section
-        sections.push({ kind: 'tool', content: entry.content, toolName: entry.toolName, isStreaming: true, timestamp: entry.timestamp });
-      } else if (last?.kind === 'tool') {
-        // Fallback: append to current tool
-        last.content += entry.content;
-        last.isStreaming = true;
-      } else {
-        sections.push({ kind: 'tool', content: entry.content, isStreaming: true, timestamp: entry.timestamp });
-      }
-    } else if (entry.type === 'tool-result') {
-      // Append result to last tool section as separate field
-      if (last?.kind === 'tool') {
-        last.toolResult = (last.toolResult ? last.toolResult + '\n' : '') + entry.content;
-        last.isStreaming = false;
-      } else {
-        sections.push({ kind: 'system', content: entry.content, timestamp: entry.timestamp });
-      }
-    } else if (entry.type === 'text') {
-      if (last?.kind === 'text') {
-        last.content += entry.content;
-      } else {
-        sections.push({ kind: 'text', content: entry.content, timestamp: entry.timestamp });
-      }
-    } else if (entry.type === 'thinking') {
-      if (last?.kind === 'thinking') {
-        last.content += entry.content;
-      } else {
-        sections.push({ kind: 'thinking', content: entry.content, timestamp: entry.timestamp });
-      }
-    } else if (entry.type === 'error') {
-      sections.push({ kind: 'error', content: entry.content, timestamp: entry.timestamp });
-    } else if (entry.type === 'rate-limit') {
-      sections.push({ kind: 'rate-limit', content: entry.content, timestamp: entry.timestamp });
-    } else if (entry.type === 'progress') {
-      // Merge consecutive progress entries for the same tool
-      if (last?.kind === 'progress' && entry.toolName && last.toolName === entry.toolName) {
-        last.content = entry.content;
-      } else {
-        sections.push({ kind: 'progress', content: entry.content, toolName: entry.toolName, timestamp: entry.timestamp });
-      }
-    } else {
-      // system — each entry gets its own section (don't concatenate)
-      sections.push({ kind: 'system', content: entry.content, timestamp: entry.timestamp });
-    }
-  }
-
-  // Post-process: extract plans, suppress noise, filter empty
-  const processed = sections.map((s) => {
-    // Detect Write tool writing to .claude/plans/ — extract content as plan
-    if (s.kind === 'tool' && s.toolName === 'Write' && s.content) {
-      try {
-        const parsed = tryParseToolJson(s.content);
-        const filePath = parsed?.file_path as string | undefined;
-        const fileContent = parsed?.content as string | undefined;
-        if (filePath?.includes('.claude/plans/') && fileContent) {
-          return { ...s, kind: 'plan' as const, content: fileContent };
-        }
-      } catch { /* not parseable */ }
-    }
-    // Suppress ExitPlanMode — it only has allowedPrompts, not the plan
-    if (s.kind === 'tool' && s.toolName?.includes('ExitPlanMode')) {
-      return null;
-    }
-    // Suppress plan sections that are just JSON (old result.result with allowedPrompts)
-    if (s.kind === 'plan' && s.content.trim().startsWith('{')) {
-      return null;
-    }
-    // Filter empty tool sections (no input, no result, no name of value)
-    if (s.kind === 'tool' && !s.content.trim() && !s.toolResult?.trim()) {
-      return null;
-    }
-    return s;
-  }).filter((s): s is Section => s !== null);
-
-  return processed;
 }
 
 /** Try to parse tool input JSON and extract a readable summary + formatted params */
@@ -251,7 +142,7 @@ function shortenPath(p: string): string {
   return '.../' + parts.slice(-3).join('/');
 }
 
-function ToolSection({ section }: { section: Section }) {
+function ToolSection({ section }: { section: OutputSection }) {
   const [expanded, setExpanded] = useState(false);
   const [resultExpanded, setResultExpanded] = useState(false);
 
@@ -370,10 +261,9 @@ function PlanSection({ content }: { content: string }) {
 
 const VISIBLE_SECTIONS = 100;
 
-export function StreamingLog({ entries }: StreamingLogProps) {
+export function StreamingLog({ sections, entryCount }: StreamingLogProps) {
   const endRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const sections = useMemo(() => buildSections(entries), [entries]);
   const [showAll, setShowAll] = useState(false);
   const isNearBottomRef = useRef(true);
 
@@ -395,11 +285,11 @@ export function StreamingLog({ entries }: StreamingLogProps) {
     if (isNearBottomRef.current) {
       endRef.current?.scrollIntoView({ behavior: 'auto' });
     }
-  }, [entries.length]);
+  }, [entryCount]);
 
   return (
     <div ref={containerRef} className="flex-1 overflow-y-auto min-h-0 bg-surface-terminal rounded-lg p-3 font-mono text-xs leading-relaxed">
-      {entries.length === 0 && (
+      {entryCount === 0 && (
         <div className="text-terminal-text-faint text-center py-8">
           Waiting for output...
         </div>

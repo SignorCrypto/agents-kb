@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react';
+import { useEffect, useState } from 'react';
 
 export function formatDuration(startMs: number, endMs: number, pausedMs = 0): string {
   const totalSec = Math.max(0, Math.floor((endMs - startMs - pausedMs) / 1000));
@@ -42,8 +42,17 @@ function getSnapshot(): number {
 /** Returns Date.now(), updated every second via a shared timer.
  *  Pass 0 to disable ticking (returns a static snapshot). */
 export function useNow(intervalMs: number): number {
-  const shared = useSyncExternalStore(subscribe, getSnapshot);
-  // When disabled, just return current Date.now() without subscribing to ticks
-  if (!intervalMs) return Date.now();
-  return shared;
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!intervalMs) {
+      setNow(Date.now());
+      return;
+    }
+
+    setNow(getSnapshot());
+    return subscribe(() => setNow(getSnapshot()));
+  }, [intervalMs]);
+
+  return now;
 }
