@@ -698,12 +698,14 @@ export function JobDetailPanel() {
             <TabButton active={doneTab === 'log'} onClick={() => setDoneTab('log')}>
               Log
             </TabButton>
+            {doneTab === 'summary' && hasSummary && (
+              <CopyButton text={job.summaryText!} className="ml-auto" />
+            )}
           </div>
 
           {/* Tab content */}
           {doneTab === 'summary' && hasSummary && (
-            <div className="flex-1 min-h-0 overflow-y-auto p-3 relative">
-              <CopyButton text={job.summaryText!} className="absolute top-3 right-3 z-10" />
+            <div className="flex-1 min-h-0 overflow-y-auto p-3">
               <PlanView content={job.summaryText!} />
               {persistedEditedFiles
                 ? <EditedFilesList files={persistedEditedFiles} projectId={job.projectId} />
@@ -745,15 +747,15 @@ export function JobDetailPanel() {
             <TabButton active={planTab === 'log'} onClick={() => setPlanTab('log')}>
               Log
             </TabButton>
+            {planTab === 'plan' && job.planText && (
+              <CopyButton text={job.planText} className="ml-auto" />
+            )}
           </div>
 
           {planTab === 'plan' && (
-            <div className="flex-1 min-h-0 overflow-y-auto p-3 relative">
+            <div className="flex-1 min-h-0 overflow-y-auto p-3">
               {job.planText ? (
-                <>
-                <CopyButton text={job.planText} className="absolute top-3 right-3 z-10" />
                 <PlanView content={job.planText} />
-                </>
               ) : (
                 <div className="text-sm text-content-tertiary italic">
                   No plan text was captured. Request changes to regenerate it.
