@@ -1,6 +1,6 @@
 {
   "name": "agents-kb",
-  "version": "0.0.12",
+  "version": "0.0.13",
   "description": "The Kanban board for terminal-based agents",
   "main": "out/main/main.js",
   "scripts": {
