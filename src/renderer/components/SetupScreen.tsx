@@ -58,46 +58,37 @@ function ExternalLinkIcon() {
   );
 }
 
-/* ─── ANSI stripping ─── */
-
-// eslint-disable-next-line no-control-regex
-const ANSI_RE = /\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[()][AB012]|\x1b\[[\d;]*[Hfm]|\r/g;
-function stripAnsi(text: string): string {
-  return text.replace(ANSI_RE, '');
-}
-
-/* ─── Login Terminal ─── */
+/* ─── Login Terminal (xterm.js) ─── */
 
 function LoginTerminal({ onComplete }: { onComplete: () => void }) {
-  const [lines, setLines] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
   const [exited, setExited] = useState(false);
-  const termRef = useRef<HTMLPreElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const terminalRef = useRef<import('@xterm/xterm').Terminal | null>(null);
+  const fitAddonRef = useRef<import('@xterm/addon-fit').FitAddon | null>(null);
   const cleanupRef = useRef<Array<() => void>>([]);
 
   const startLogin = useCallback(() => {
-    setLines([]);
     setRunning(true);
     setExited(false);
 
     const api = window.electronAPI;
+    const term = terminalRef.current;
+
+    term?.clear();
 
     const unsubData = api.onCliLoginData((data) => {
-      const clean = stripAnsi(data);
-      if (clean.trim()) {
-        setLines((prev) => [...prev, clean]);
-      }
+      term?.write(data);
     });
 
     const unsubExit = api.onCliLoginExit((exitCode) => {
       setRunning(false);
       setExited(true);
       if (exitCode === 0) {
-        setLines((prev) => [...prev, '\nLogin successful.']);
-        // Auto re-check health after a short delay
+        term?.writeln('\r\nLogin successful.');
         setTimeout(onComplete, 800);
       } else {
-        setLines((prev) => [...prev, `\nLogin exited with code ${exitCode}.`]);
+        term?.writeln(`\r\nLogin exited with code ${exitCode}.`);
       }
     });
 
@@ -105,21 +96,67 @@ function LoginTerminal({ onComplete }: { onComplete: () => void }) {
     api.cliStartLogin();
   }, [onComplete]);
 
-  // Auto-start on mount
+  // Initialize xterm.js
   useEffect(() => {
-    startLogin();
+    let mounted = true;
+
+    async function init() {
+      const { Terminal } = await import('@xterm/xterm');
+      const { FitAddon } = await import('@xterm/addon-fit');
+
+      if (!mounted || !containerRef.current) return;
+
+      const fitAddon = new FitAddon();
+      const term = new Terminal({
+        cursorBlink: true,
+        fontSize: 12,
+        fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+        theme: {
+          background: '#1a1a1a',
+          foreground: '#e0e0e0',
+          cursor: '#e0e0e0',
+        },
+        rows: 12,
+        convertEol: true,
+        allowProposedApi: true,
+      });
+
+      term.loadAddon(fitAddon);
+      term.open(containerRef.current);
+      fitAddon.fit();
+
+      // Forward user keyboard input to the PTY
+      term.onData((data) => {
+        window.electronAPI.cliLoginWrite(data);
+      });
+
+      terminalRef.current = term;
+      fitAddonRef.current = fitAddon;
+
+      // Start login after terminal is ready
+      startLogin();
+    }
+
+    init();
+
+    // Resize observer to keep terminal fitted
+    const resizeObserver = new ResizeObserver(() => {
+      fitAddonRef.current?.fit();
+    });
+    if (containerRef.current) {
+      resizeObserver.observe(containerRef.current);
+    }
+
     return () => {
+      mounted = false;
       cleanupRef.current.forEach((fn) => fn());
       window.electronAPI.cliLoginKill();
+      resizeObserver.disconnect();
+      terminalRef.current?.dispose();
+      terminalRef.current = null;
+      fitAddonRef.current = null;
     };
-  }, [startLogin]);
-
-  // Auto-scroll terminal
-  useEffect(() => {
-    if (termRef.current) {
-      termRef.current.scrollTop = termRef.current.scrollHeight;
-    }
-  }, [lines]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="w-full rounded-lg border border-chrome-subtle overflow-hidden">
@@ -140,17 +177,7 @@ function LoginTerminal({ onComplete }: { onComplete: () => void }) {
           </button>
         )}
       </div>
-      <pre
-        ref={termRef}
-        className="bg-surface-terminal text-terminal-text text-xs font-mono p-3 h-48 overflow-y-auto whitespace-pre-wrap leading-relaxed"
-      >
-        {lines.length === 0 && running && (
-          <span className="text-terminal-text-muted">Starting login…</span>
-        )}
-        {lines.map((line, i) => (
-          <div key={i}>{line}</div>
-        ))}
-      </pre>
+      <div ref={containerRef} className="h-52" />
     </div>
   );
 }
