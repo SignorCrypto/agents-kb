@@ -19,6 +19,8 @@ function applyDarkClass(isDark: boolean) {
   document.documentElement.classList.toggle('dark', isDark);
 }
 
+const isWindows = navigator.userAgent.includes('Windows');
+
 export default function App() {
   const cliHealth = useKanbanStore((s) => s.cliHealth);
   const cliHealthLoading = useKanbanStore((s) => s.cliHealthLoading);
@@ -100,7 +102,7 @@ export default function App() {
         {/* Drag region / title bar */}
         <div
           className="h-10 flex items-center justify-between px-3 shrink-0"
-          style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+          style={{ WebkitAppRegion: 'drag', ...(isWindows ? { paddingRight: 140 } : {}) } as React.CSSProperties}
         >
           <div className="flex items-center gap-2">
             {selectedProject ? (

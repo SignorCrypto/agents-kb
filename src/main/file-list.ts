@@ -30,7 +30,7 @@ async function walkDir(dir: string, root: string, results: string[]): Promise<vo
       if (IGNORED_DIRS.has(entry.name) || entry.name.startsWith('.')) continue;
       await walkDir(path.join(dir, entry.name), root, results);
     } else {
-      results.push(path.relative(root, path.join(dir, entry.name)));
+      results.push(path.relative(root, path.join(dir, entry.name)).replace(/\\/g, '/'));
     }
   }
 }

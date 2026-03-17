@@ -2,7 +2,7 @@ import { app, BrowserWindow, nativeTheme } from 'electron';
 import path from 'path';
 import { fixPath } from './fix-path';
 
-// Fix PATH for packaged macOS apps before any CLI invocations
+// Fix PATH for packaged apps before any CLI invocations
 fixPath();
 
 console.log('[main] Starting Agents-KB...');
@@ -16,13 +16,21 @@ let mainWindow: BrowserWindow | null = null;
 
 const createWindow = () => {
   const isDark = nativeTheme.shouldUseDarkColors;
+  const isMac = process.platform === 'darwin';
+  const isWin = process.platform === 'win32';
+
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
     minWidth: 1000,
     minHeight: 600,
-    titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 16, y: 16 },
+    titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
+    ...(isMac ? { trafficLightPosition: { x: 16, y: 16 } } : {}),
+    ...(isWin ? { titleBarOverlay: {
+      color: isDark ? '#0c0a09' : '#f1f0ee',
+      symbolColor: isDark ? '#e7e5e4' : '#1c1917',
+      height: 40,
+    } } : {}),
     backgroundColor: isDark ? '#0c0a09' : '#f1f0ee',
     webPreferences: {
       preload: path.join(__dirname, '../preload/preload.js'),

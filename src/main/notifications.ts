@@ -33,6 +33,11 @@ function showNotification({ jobId, projectName, jobTitle, subtitle, body, getWin
 
   if (process.platform === "darwin") {
     app.dock?.bounce("informational");
+  } else if (process.platform === "win32") {
+    const win = getWindow();
+    if (win && !win.isFocused()) {
+      win.flashFrame(true);
+    }
   }
 }
 

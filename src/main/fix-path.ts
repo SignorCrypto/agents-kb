@@ -4,14 +4,23 @@ import os from 'os';
 
 /**
  * On macOS, packaged Electron apps launched via Finder get a minimal PATH
- * (just /usr/bin:/bin:/usr/sbin:/sbin). This function enriches process.env.PATH
- * with the user's full shell PATH so that CLIs like `claude` can be found.
+ * (just /usr/bin:/bin:/usr/sbin:/sbin). On Windows, packaged apps may also
+ * miss user-installed CLI tools. This function enriches process.env.PATH
+ * so that CLIs like `claude` can be found.
  *
  * Must be called early in the main process before any CLI invocations.
  */
 export function fixPath(): void {
-  if (process.platform !== 'darwin' || !app.isPackaged) return;
+  if (!app.isPackaged) return;
 
+  if (process.platform === 'darwin') {
+    fixPathDarwin();
+  } else if (process.platform === 'win32') {
+    fixPathWin32();
+  }
+}
+
+function fixPathDarwin(): void {
   // Try to get the full PATH from the user's login shell
   try {
     const shell = process.env.SHELL || '/bin/zsh';
@@ -44,5 +53,24 @@ export function fixPath(): void {
   if (missing.length > 0) {
     process.env.PATH = [...missing, currentPath].join(':');
     console.log('[fix-path] PATH augmented with fallback dirs:', process.env.PATH);
+  }
+}
+
+function fixPathWin32(): void {
+  const home = os.homedir();
+  const appData = process.env.APPDATA || `${home}\\AppData\\Roaming`;
+  const localAppData = process.env.LOCALAPPDATA || `${home}\\AppData\\Local`;
+
+  // Common CLI install locations on Windows
+  const extraPaths = [
+    `${appData}\\npm`,
+    `${localAppData}\\pnpm`,
+    `${home}\\.cargo\\bin`,
+  ];
+  const currentPath = process.env.PATH || '';
+  const missing = extraPaths.filter((p) => !currentPath.includes(p));
+  if (missing.length > 0) {
+    process.env.PATH = [...missing, currentPath].join(';');
+    console.log('[fix-path] PATH augmented with Windows fallback dirs:', process.env.PATH);
   }
 }

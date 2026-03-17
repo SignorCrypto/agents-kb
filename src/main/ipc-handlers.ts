@@ -1969,6 +1969,17 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     const updated = updateSettings(partial);
     if (partial.theme) {
       nativeTheme.themeSource = partial.theme;
+      // Update Windows title bar overlay colors to match new theme
+      if (process.platform === 'win32') {
+        const win = getWindow();
+        const isDark = nativeTheme.shouldUseDarkColors;
+        if (win) {
+          win.setTitleBarOverlay({
+            color: isDark ? '#0c0a09' : '#f1f0ee',
+            symbolColor: isDark ? '#e7e5e4' : '#1c1917',
+          });
+        }
+      }
     }
     return updated;
   });

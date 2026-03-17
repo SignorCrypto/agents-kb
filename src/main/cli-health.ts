@@ -76,7 +76,7 @@ export function spawnLogin(
   }
 
   loginPty = nodePty.spawn('claude', ['login'], {
-    name: 'xterm-256color',
+    name: process.platform === 'win32' ? 'windows-terminal' : 'xterm-256color',
     cols: 80,
     rows: 24,
     env: { ...process.env, PATH: process.env.PATH } as Record<string, string>,

@@ -18,6 +18,16 @@ mac:
   entitlements: entitlements.plist
   entitlementsInherit: entitlements.plist
   notarize: true
+win:
+  icon: assets/icon.ico
+  target:
+    - nsis
+    - zip
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  installerIcon: assets/icon.ico
+  uninstallerIcon: assets/icon.ico
 publish:
   provider: github
   owner: SignorCrypto
