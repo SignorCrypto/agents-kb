@@ -27,7 +27,7 @@ jobs:
         run: pnpm build
 
       - name: Package Windows installer
-        run: pnpm exec electron-builder --win
+        run: pnpm exec electron-builder --win --publish never
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
