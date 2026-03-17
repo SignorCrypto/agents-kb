@@ -29,6 +29,7 @@ import { isDemoMode, getDemoProjects, getDemoJobs, getDemoSettings, getDemoBranc
 import { isGitRepoRoot, listBranches, checkoutBranch, gitStageAll, gitCommit, getBranchesStatus, gitPush } from './git-snapshot';
 import { setSkillsCache, registerSkillsIpc } from './skills/index';
 import { listProjectFiles } from './file-list';
+import { TitleGenerationQueue } from './title-generation';
 import type { Job, JobImage, JobDetailDrafts, JobComposerDraft, PendingQuestionDraft, OutputEntry, RawMessage, PendingQuestion, AppSettings, Project, ModelChoice, EffortLevel, PromptConfig, PermissionMode, DynamicModelInfo, ModelOption, Skill, AccountInfo, ThinkingMode } from '../shared/types';
 import { DEFAULT_PROMPT_CONFIGS, normalizeEffortForThinking } from '../shared/types';
 import {
@@ -96,6 +97,7 @@ const activateApp = async (appName: string): Promise<void> => {
 type WindowGetter = () => BrowserWindow | null;
 
 const stepHistoryTracker = new JobStepHistoryTracker();
+const titleGenerationQueue = new TitleGenerationQueue();
 
 // --- Dynamic model catalog from SDK ---
 let cachedDynamicModels: DynamicModelInfo[] | null = null;
@@ -818,15 +820,6 @@ const SINGLE_LINE_SCHEMA = {
   additionalProperties: false,
 } as const;
 
-const TITLE_SCHEMA = {
-  type: 'object',
-  properties: {
-    title: { type: 'string', description: 'A very short task title (3-8 words), no quotes or punctuation at the end' },
-  },
-  required: ['title'],
-  additionalProperties: false,
-} as const;
-
 async function runClaudeEditTask(
   projectPath: string,
   prompt: string,
@@ -998,47 +991,46 @@ async function rollbackWithModel(job: Job, projectPath: string, targetIndex: num
   }
 }
 
-async function generateTitleInBackground(
+function enqueueTitleGeneration(
   jobId: string,
   prompt: string,
-  projectPath: string,
   getWindow: WindowGetter,
   followUpIndex?: number,
   context?: string
 ) {
-  try {
-    const config = getPromptConfig('title');
-    let titlePrompt = `${config.prompt}\n\n`;
-    if (context) {
-      titlePrompt += `Context: ${context}\n\n`;
-    }
-    titlePrompt += `Task: ${prompt}`;
-    const result = await runClaudeStructured<{ title: string }>(
-      projectPath,
-      titlePrompt,
-      TITLE_SCHEMA,
-      { model: config.model, effort: config.effort },
-    );
-    const title = result?.title?.trim();
-    if (!title) return;
+  const config = getPromptConfig('title');
+  let titlePrompt = buildPromptText(config, '\n\n');
+  if (context) {
+    titlePrompt += `Context: ${context}\n\n`;
+  }
+  titlePrompt += `Task: ${prompt}`;
 
-    const current = getJob(jobId);
-    if (!current) return;
+  titleGenerationQueue.enqueue({
+    jobId,
+    followUpIndex,
+    prompt: titlePrompt,
+    model: config.model,
+    effort: config.effort,
+    onSuccess: async (title) => {
+      const current = getJob(jobId);
+      if (!current) return;
 
-    if (followUpIndex !== undefined) {
-      const followUps = [...(current.followUps || [])];
-      if (followUps[followUpIndex]) {
+      if (followUpIndex !== undefined) {
+        const followUps = [...(current.followUps || [])];
+        if (!followUps[followUpIndex]) return;
         followUps[followUpIndex] = { ...followUps[followUpIndex], title };
         const updated = updateJob(jobId, { followUps });
         if (updated) sendToRenderer(getWindow, 'job:status-changed', updated);
+        return;
       }
-    } else {
+
       const updated = updateJob(jobId, { title });
       if (updated) sendToRenderer(getWindow, 'job:status-changed', updated);
-    }
-  } catch (err) {
-    console.error('[generateTitleInBackground] Failed:', err);
-  }
+    },
+    onError: async (err) => {
+      console.error('[enqueueTitleGeneration] Failed:', err);
+    },
+  });
 }
 
 function registerDemoHandlers(): void {
@@ -1488,7 +1480,7 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     // Generate title in background (non-blocking)
     const titleProject = getProjects().find(p => p.id === projectId);
     if (titleProject) {
-      generateTitleInBackground(job.id, prompt, titleProject.path, getWindow);
+      enqueueTitleGeneration(job.id, prompt, getWindow);
     }
 
     await startClaudeSession(job, getWindow, batchedSender, skipPlanning ? 'dev' : 'plan');
@@ -1513,6 +1505,7 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
   ipcMain.handle('jobs:delete', async (_event, jobId: string, options?: { rollback?: boolean }) => {
     sessionManager.kill(jobId);
     stepHistoryTracker.discardStep(jobId);
+    titleGenerationQueue.cancel(jobId);
     const job = getJob(jobId);
 
     if (options?.rollback && job) {
@@ -1811,7 +1804,7 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
       // Generate title for the follow-up in background, with job context
       if (project) {
         const prevContext = (job.title || job.prompt) + (job.summaryText ? `\n\nPrevious result: ${job.summaryText.slice(0, 300)}` : '');
-        generateTitleInBackground(jobId, prompt, project.path, getWindow, followUps.length - 1, prevContext);
+        enqueueTitleGeneration(jobId, prompt, getWindow, followUps.length - 1, prevContext);
       }
 
       if (images?.length) pendingImages.set(jobId, images);

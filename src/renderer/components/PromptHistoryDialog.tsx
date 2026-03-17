@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useKanbanStore } from '../hooks/useKanbanStore';
 import { XIcon } from './Icons';
+import { CopyButton } from './CopyButton';
 
 function formatTimestamp(iso: string): string {
   const d = new Date(iso);
@@ -104,6 +105,7 @@ export function PromptHistoryDialog() {
                   <span className="text-[10px] text-content-tertiary/60">
                     {formatTimestamp(job.createdAt)}
                   </span>
+                  <CopyButton text={job.prompt} className="ml-auto -my-1" />
                 </div>
                 {job.title && (
                   <div className="text-[13px] font-semibold text-content-primary leading-snug mb-1">
@@ -137,6 +139,7 @@ export function PromptHistoryDialog() {
                     <span className="text-[10px] text-content-tertiary/60">
                       {formatTimestamp(f.timestamp)}
                     </span>
+                    <CopyButton text={f.prompt} className="ml-auto -my-1" />
                   </div>
                   {f.title && (
                     <div className="text-[13px] font-semibold text-content-primary leading-snug mb-1">
