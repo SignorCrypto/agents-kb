@@ -66,7 +66,6 @@ function fixPathWin32(): void {
     `${appData}\\npm`,
     `${localAppData}\\pnpm`,
     `${home}\\.cargo\\bin`,
-    `${localAppData}\\Programs\\Python\\Python3*`,
   ];
   const currentPath = process.env.PATH || '';
   const missing = extraPaths.filter((p) => !currentPath.includes(p));
