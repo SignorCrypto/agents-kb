@@ -95,6 +95,15 @@ export function CheckIcon({ size = 16, ...props }: IconProps) {
   );
 }
 
+export function SearchIcon({ size = 16, ...props }: IconProps) {
+  return (
+    <svg {...defaults(size, props)}>
+      <circle cx="7" cy="7" r="4.5" />
+      <line x1="10.2" y1="10.2" x2="14" y2="14" />
+    </svg>
+  );
+}
+
 export function BranchIcon({ size = 16, ...props }: IconProps) {
   return (
     <svg {...defaults(size, props)}>

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useElectronAPI } from '../../hooks/useElectronAPI';
 import { useKanbanStore } from '../../hooks/useKanbanStore';
-import { LightbulbIcon, XIcon } from '../../components/Icons';
+import { LightbulbIcon, SearchIcon, XIcon } from '../../components/Icons';
 import type { Skill } from '../../types/index';
 
 export function SkillsPanel({ onClose }: { onClose: () => void }) {
@@ -10,7 +10,9 @@ export function SkillsPanel({ onClose }: { onClose: () => void }) {
   const selectedProjectId = useKanbanStore((s) => s.selectedProjectId);
   const [skills, setSkills] = useState<Skill[]>([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
   const dialogRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -42,8 +44,16 @@ export function SkillsPanel({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener('keydown', handler, true);
   }, [onClose]);
 
-  const projectSkills = skills.filter((s) => s.source === 'project');
-  const globalSkills = skills.filter((s) => s.source === 'global');
+  const query = search.toLowerCase().trim();
+  const filtered = query
+    ? skills.filter(
+        (s) =>
+          s.name.toLowerCase().includes(query) ||
+          s.description?.toLowerCase().includes(query),
+      )
+    : skills;
+  const projectSkills = filtered.filter((s) => s.source === 'project');
+  const globalSkills = filtered.filter((s) => s.source === 'global');
 
   return createPortal(
     <div
@@ -87,6 +97,27 @@ export function SkillsPanel({ onClose }: { onClose: () => void }) {
 
         <div className="border-t border-chrome-subtle/70" />
 
+        {/* Search */}
+        {!loading && skills.length > 0 && (
+          <div className="px-4 pt-3 pb-1">
+            <div className="relative">
+              <SearchIcon
+                size={13}
+                className="absolute left-2.5 top-1/2 -translate-y-1/2 text-content-tertiary pointer-events-none"
+              />
+              <input
+                ref={searchRef}
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search skills…"
+                spellCheck={false}
+                className="w-full h-8 pl-[30px] pr-3 rounded-lg text-xs bg-surface-tertiary/40 border border-chrome-subtle/50 text-content-primary placeholder:text-content-tertiary/60 focus:outline-none focus:border-focus-ring/40 focus:bg-surface-tertiary/60 transition-colors"
+              />
+            </div>
+          </div>
+        )}
+
         {/* Content */}
         <div className="px-5 py-4 overflow-y-auto flex-1">
           {loading ? (
@@ -120,6 +151,15 @@ export function SkillsPanel({ onClose }: { onClose: () => void }) {
                   .claude/skills/
                 </span>{' '}
                 in your project.
+              </p>
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="text-center py-8">
+              <p className="text-xs text-content-tertiary">
+                No skills matching{' '}
+                <span className="font-mono text-content-secondary">
+                  &ldquo;{search}&rdquo;
+                </span>
               </p>
             </div>
           ) : (
