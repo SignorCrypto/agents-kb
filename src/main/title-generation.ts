@@ -1,12 +1,12 @@
-import { query } from './sdk';
-import type { EffortLevel, ModelChoice } from '../shared/types';
+import { query } from "./sdk";
+import type { EffortLevel, ModelChoice } from "../shared/types";
 
 const TITLE_SCHEMA = {
-  type: 'object',
+  type: "object",
   properties: {
-    title: { type: 'string', description: 'A very short task title (3-8 words), no quotes or punctuation at the end' },
+    title: { type: "string", description: "A very short task title (3-8 words), no quotes or punctuation at the end" },
   },
-  required: ['title'],
+  required: ["title"],
   additionalProperties: false,
 } as const;
 
@@ -18,7 +18,7 @@ export interface TitleGenerationRequest {
   jobId: string;
   prompt: string;
   model: ModelChoice;
-  effort: EffortLevel;
+  effort?: EffortLevel;
   followUpIndex?: number;
   onSuccess: (title: string) => void | Promise<void>;
   onError?: (error: unknown) => void | Promise<void>;
@@ -30,15 +30,23 @@ interface QueuedTitleRequest extends TitleGenerationRequest {
 
 export async function runClaudeTitleQuery(
   prompt: string,
-  options: { model: ModelChoice; effort: EffortLevel },
+  options: { model: ModelChoice; effort?: EffortLevel },
 ): Promise<string | null> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sdkOptions: Record<string, any> = {
+    outputFormat: { type: "json_schema", schema: TITLE_SCHEMA },
+    model: options.model,
+  };
+
+  if (options.effort) {
+    sdkOptions.effort = options.effort;
+  } else {
+    sdkOptions.thinking = { type: "disabled" };
+  }
+
   for await (const msg of query({
     prompt,
-    options: {
-      outputFormat: { type: 'json_schema', schema: TITLE_SCHEMA },
-      model: options.model,
-      effort: options.effort,
-    },
+    options: sdkOptions,
   })) {
     const m = msg as {
       type?: string;
@@ -47,9 +55,9 @@ export async function runClaudeTitleQuery(
       result?: string;
     };
 
-    if (m.type !== 'result') continue;
+    if (m.type !== "result") continue;
 
-    if (m.subtype === 'success') {
+    if (m.subtype === "success") {
       const structuredTitle = m.structured_output?.title?.trim();
       if (structuredTitle) return structuredTitle;
 
@@ -66,7 +74,7 @@ export async function runClaudeTitleQuery(
       return null;
     }
 
-    if (m.subtype?.startsWith('error')) {
+    if (m.subtype?.startsWith("error")) {
       throw new Error(`Claude query failed: ${m.result || m.subtype}`);
     }
   }
@@ -112,12 +120,11 @@ export class TitleGenerationQueue {
   private async drain(): Promise<void> {
     if (this.active) return;
 
-    const next = this.pending.shift();
-    if (!next) return;
-    if (next.canceled) {
-      void this.drain();
-      return;
+    let next = this.pending.shift();
+    while (next && next.canceled) {
+      next = this.pending.shift();
     }
+    if (!next) return;
 
     this.active = next;
 

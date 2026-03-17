@@ -90,6 +90,7 @@ export interface ElectronAPI {
   onAccountUpdated: (callback: (info: AccountInfo) => void) => () => void;
 
   // App
+  appGetPlatform: () => NodeJS.Platform;
   appGetVersion: () => Promise<string>;
 
   // Updater

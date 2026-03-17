@@ -19,7 +19,7 @@ function applyDarkClass(isDark: boolean) {
   document.documentElement.classList.toggle('dark', isDark);
 }
 
-const isWindows = navigator.userAgent.includes('Windows');
+const isWindows = window.electronAPI.appGetPlatform() === 'win32';
 
 export default function App() {
   const cliHealth = useKanbanStore((s) => s.cliHealth);

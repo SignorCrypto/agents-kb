@@ -103,6 +103,7 @@ const api: ElectronAPI = {
   },
 
   // App
+  appGetPlatform: () => process.platform,
   appGetVersion: () => ipcRenderer.invoke('app:get-version'),
 
   // Updater

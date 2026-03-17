@@ -80,9 +80,7 @@ export const EFFORT_LABELS: Record<string, EffortOption> = {
 /** Build an EffortOption[] from the model's supportedEffortLevels */
 export function getEffortOptionsForModel(model: ModelOption | undefined): EffortOption[] {
   if (!model?.supportsEffort || !model.supportedEffortLevels?.length) return [];
-  return model.supportedEffortLevels
-    .map((level) => EFFORT_LABELS[level])
-    .filter(Boolean);
+  return model.supportedEffortLevels.map((level) => EFFORT_LABELS[level]).filter(Boolean);
 }
 
 export function getThinkingModeOptionsForModel(model: ModelOption | undefined): ThinkingModeOption[] {
@@ -92,9 +90,7 @@ export function getThinkingModeOptionsForModel(model: ModelOption | undefined): 
       value: "sdkDefault",
       label: adaptive ? "Adaptive" : "Default",
       badge: adaptive ? "ADAPT" : "DEFAULT",
-      description: adaptive
-        ? "Claude decides when and how much to think"
-        : "Use the model's default thinking behavior",
+      description: adaptive ? "Claude decides when and how much to think" : "Use the model's default thinking behavior",
     },
     {
       value: "disabled",
@@ -140,17 +136,16 @@ export function getThinkingDisplay(
   effortBadge?: string;
 } {
   const resolvedMode = thinkingMode ?? "sdkDefault";
-  const modeOption = getThinkingModeOptionsForModel(model).find((option) => option.value === resolvedMode)
-    ?? getThinkingModeOptionsForModel(model)[0];
+  const modeOption =
+    getThinkingModeOptionsForModel(model).find((option) => option.value === resolvedMode) ??
+    getThinkingModeOptionsForModel(model)[0];
   const normalizedEffort = normalizeEffortForThinking(model, resolvedMode, effort);
   const effortOption = normalizedEffort ? EFFORT_LABELS[normalizedEffort] : undefined;
 
   return {
     modeLabel: modeOption.label,
     modeBadge: modeOption.badge,
-    ...(effortOption
-      ? { effortLabel: effortOption.label, effortBadge: effortOption.badge }
-      : {}),
+    ...(effortOption ? { effortLabel: effortOption.label, effortBadge: effortOption.badge } : {}),
   };
 }
 
@@ -165,10 +160,10 @@ export interface PromptConfig {
   prompt: string;
   suffix?: string;
   model: ModelChoice;
-  effort: EffortLevel;
+  effort?: EffortLevel;
 }
 
-export const PROMPT_IDS = { COMMIT: 'commit', TITLE: 'title', ROLLBACK: 'rollback' } as const;
+export const PROMPT_IDS = { COMMIT: "commit", TITLE: "title", ROLLBACK: "rollback" } as const;
 export type PromptId = (typeof PROMPT_IDS)[keyof typeof PROMPT_IDS];
 
 export interface ShortcutBinding {
@@ -178,8 +173,8 @@ export interface ShortcutBinding {
   enabled: boolean;
 }
 
-export type PreferredEditor = 'auto' | 'cursor' | 'vscode';
-export type PermissionMode = 'bypassPermissions' | 'default';
+export type PreferredEditor = "auto" | "cursor" | "vscode";
+export type PermissionMode = "bypassPermissions" | "default";
 
 export interface PermissionModeOption {
   value: PermissionMode;
@@ -188,8 +183,12 @@ export interface PermissionModeOption {
 }
 
 export const PERMISSION_MODE_CATALOG: PermissionModeOption[] = [
-  { value: 'bypassPermissions', label: 'Skip All', description: 'All permission checks bypassed (--dangerously-skip-permissions)' },
-  { value: 'default',           label: 'Default',  description: 'Claude will ask for permission when needed' },
+  {
+    value: "bypassPermissions",
+    label: "Skip All",
+    description: "All permission checks bypassed (--dangerously-skip-permissions)",
+  },
+  { value: "default", label: "Default", description: "Claude will ask for permission when needed" },
 ];
 
 /* ─── Claude Tool Catalog ─── */
@@ -208,15 +207,15 @@ export interface ClaudeToolOption {
 }
 
 export const CLAUDE_TOOL_CATALOG: ClaudeToolOption[] = [
-  { name: 'Edit',             label: 'Edit',             description: 'Modify existing files',                defaultAllowed: true },
-  { name: 'Write',            label: 'Write',            description: 'Create new files',                     defaultAllowed: true },
-  { name: 'NotebookEdit',     label: 'NotebookEdit',     description: 'Edit Jupyter notebooks',               defaultAllowed: true },
-  { name: 'Bash',             label: 'Bash',             description: 'Run shell commands',                   defaultAllowed: true },
-  { name: 'AskUserQuestion',  label: 'AskUserQuestion',  description: 'Ask questions to the user',            defaultAllowed: true },
-  { name: 'Agent',            label: 'Agent',            description: 'Spawn subagents for parallel tasks',   defaultAllowed: true },
-  { name: 'TodoWrite',        label: 'TodoWrite',        description: 'Internal task tracking',               defaultAllowed: true },
-  { name: 'WebFetch',         label: 'WebFetch',         description: 'Fetch content from URLs',              defaultAllowed: true },
-  { name: 'WebSearch',        label: 'WebSearch',        description: 'Search the web',                       defaultAllowed: true },
+  { name: "Edit", label: "Edit", description: "Modify existing files", defaultAllowed: true },
+  { name: "Write", label: "Write", description: "Create new files", defaultAllowed: true },
+  { name: "NotebookEdit", label: "NotebookEdit", description: "Edit Jupyter notebooks", defaultAllowed: true },
+  { name: "Bash", label: "Bash", description: "Run shell commands", defaultAllowed: true },
+  { name: "AskUserQuestion", label: "AskUserQuestion", description: "Ask questions to the user", defaultAllowed: true },
+  { name: "Agent", label: "Agent", description: "Spawn subagents for parallel tasks", defaultAllowed: true },
+  { name: "TodoWrite", label: "TodoWrite", description: "Internal task tracking", defaultAllowed: true },
+  { name: "WebFetch", label: "WebFetch", description: "Fetch content from URLs", defaultAllowed: true },
+  { name: "WebSearch", label: "WebSearch", description: "Search the web", defaultAllowed: true },
 ];
 
 export const DEFAULT_ALLOWED_TOOLS: Record<string, boolean> = Object.fromEntries(
@@ -256,15 +255,21 @@ export const DEFAULT_COMMIT_PROMPT =
   "Generate a concise conventional commit message for the current uncommitted changes.";
 export const COMMIT_PROMPT_SUFFIX = "";
 
-export const DEFAULT_TITLE_PROMPT =
-  'Generate a very short task title (3-8 words) for this task.';
+export const DEFAULT_TITLE_PROMPT = "Generate a very short task title (3-8 words) for this task.";
 export const DEFAULT_ROLLBACK_PROMPT =
-  'Revert the requested Agents-KB job changes by restoring the listed files to the provided target contents. Preserve unrelated newer changes whenever possible. If you cannot do this safely, explain why and make no changes.';
+  "Revert the requested Agents-KB job changes by restoring the listed files to the provided target contents. Preserve unrelated newer changes whenever possible. If you cannot do this safely, explain why and make no changes.";
 
 export const DEFAULT_PROMPT_CONFIGS: Record<PromptId, PromptConfig> = {
-  commit: { id: 'commit', label: 'Commit Message', prompt: DEFAULT_COMMIT_PROMPT, suffix: COMMIT_PROMPT_SUFFIX, model: 'haiku', effort: 'low' },
-  title:  { id: 'title',  label: 'Job Title',      prompt: DEFAULT_TITLE_PROMPT,  model: 'haiku', effort: 'low' },
-  rollback: { id: 'rollback', label: 'Rollback', prompt: DEFAULT_ROLLBACK_PROMPT, model: 'sonnet', effort: 'medium' },
+  commit: {
+    id: "commit",
+    label: "Commit Message",
+    prompt: DEFAULT_COMMIT_PROMPT,
+    suffix: COMMIT_PROMPT_SUFFIX,
+    model: "haiku",
+    effort: "low",
+  },
+  title: { id: "title", label: "Job Title", prompt: DEFAULT_TITLE_PROMPT, model: "haiku" },
+  rollback: { id: "rollback", label: "Rollback", prompt: DEFAULT_ROLLBACK_PROMPT, model: "sonnet", effort: "medium" },
 };
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -282,7 +287,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   preferredEditor: "auto",
   notificationsEnabled: true,
   deleteCompletedJobsOnCommit: false,
-  permissionMode: 'bypassPermissions',
+  permissionMode: "bypassPermissions",
 };
 
 /* ─── File Rewind ─── */
@@ -316,7 +321,7 @@ export interface ContextUsage {
 export interface Skill {
   name: string;
   description: string;
-  source: 'global' | 'project';
+  source: "global" | "project";
   filePath: string;
 }
 
@@ -325,7 +330,7 @@ export interface Skill {
 export type KanbanColumn = "planning" | "development" | "done";
 export type JobStatus = "running" | "waiting-input" | "plan-ready" | "completed" | "error" | "rejected";
 
-export type JobFileSnapshotKind = 'text' | 'binary' | 'created' | 'deleted';
+export type JobFileSnapshotKind = "text" | "binary" | "created" | "deleted";
 
 export interface JobFileSnapshot {
   path: string;
@@ -352,25 +357,25 @@ export interface JobStepSnapshot {
 }
 
 export const PROJECT_COLORS = [
-  { id: 'slate',   hex: '#64748b' },
-  { id: 'red',     hex: '#ef4444' },
-  { id: 'orange',  hex: '#f97316' },
-  { id: 'amber',   hex: '#f59e0b' },
-  { id: 'lime',    hex: '#84cc16' },
-  { id: 'emerald', hex: '#10b981' },
-  { id: 'teal',    hex: '#14b8a6' },
-  { id: 'cyan',    hex: '#06b6d4' },
-  { id: 'blue',    hex: '#3b82f6' },
-  { id: 'indigo',  hex: '#6366f1' },
-  { id: 'violet',  hex: '#8b5cf6' },
-  { id: 'pink',    hex: '#ec4899' },
-  { id: 'rose',    hex: '#f43f5e' },
+  { id: "slate", hex: "#64748b" },
+  { id: "red", hex: "#ef4444" },
+  { id: "orange", hex: "#f97316" },
+  { id: "amber", hex: "#f59e0b" },
+  { id: "lime", hex: "#84cc16" },
+  { id: "emerald", hex: "#10b981" },
+  { id: "teal", hex: "#14b8a6" },
+  { id: "cyan", hex: "#06b6d4" },
+  { id: "blue", hex: "#3b82f6" },
+  { id: "indigo", hex: "#6366f1" },
+  { id: "violet", hex: "#8b5cf6" },
+  { id: "pink", hex: "#ec4899" },
+  { id: "rose", hex: "#f43f5e" },
 ] as const;
 
-export type ProjectColorId = (typeof PROJECT_COLORS)[number]['id'];
+export type ProjectColorId = (typeof PROJECT_COLORS)[number]["id"];
 
 export function getProjectColor(colorId?: string): string {
-  const found = PROJECT_COLORS.find(c => c.id === colorId);
+  const found = PROJECT_COLORS.find((c) => c.id === colorId);
   return found ? found.hex : PROJECT_COLORS[0].hex;
 }
 
@@ -403,7 +408,7 @@ export interface QuestionOption {
 }
 
 export interface SubQuestion {
-  question: string;       // question text, also the key in answers record
+  question: string; // question text, also the key in answers record
   header?: string;
   options?: QuestionOption[];
   multiSelect?: boolean;
@@ -438,7 +443,7 @@ export interface FollowUp {
 
 export interface DraftImage {
   name: string;
-  mediaType: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
+  mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
   base64: string;
 }
 
@@ -467,7 +472,7 @@ export interface JobDetailDrafts {
 /** Image attachment metadata. base64 is transient (not persisted to electron-store). */
 export interface JobImage {
   name: string;
-  mediaType: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
+  mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
   base64?: string;
 }
 
