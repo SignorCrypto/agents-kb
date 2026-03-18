@@ -10,6 +10,7 @@
     "postinstall": "electron-builder install-app-deps",
     "package": "pnpm build && electron-builder --dir",
     "make": "pnpm build && electron-builder",
+    "make:win": "pnpm build && electron-builder  --win --x64",
     "publish": "pnpm build && electron-builder --publish always"
   },
   "license": "MIT",

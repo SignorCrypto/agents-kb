@@ -1840,6 +1840,7 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
       cwd: project.path,
       timeout: 60000,
       env: { ...process.env, FORCE_COLOR: '0' },
+      shell: process.platform === 'win32',
     });
 
     const filePath = path.join(project.path, 'CLAUDE.md');

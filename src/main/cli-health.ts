@@ -4,6 +4,7 @@ import * as nodePty from 'node-pty';
 import type { CliHealthStatus, AccountInfo } from '../shared/types';
 
 const execFileAsync = promisify(execFile);
+const isWindows = process.platform === 'win32';
 
 let loginPty: nodePty.IPty | null = null;
 
@@ -19,6 +20,7 @@ export async function checkCliHealth(): Promise<CliHealthStatus> {
     const { stdout } = await execFileAsync('claude', ['--version'], {
       timeout: 10_000,
       env: { ...process.env, PATH: process.env.PATH },
+      shell: isWindows,
     });
     version = stdout.trim();
   } catch {
@@ -30,6 +32,7 @@ export async function checkCliHealth(): Promise<CliHealthStatus> {
     await execFileAsync('claude', ['auth', 'status'], {
       timeout: 10_000,
       env: { ...process.env, PATH: process.env.PATH },
+      shell: isWindows,
     });
     return { installed: true, authenticated: true, version };
   } catch {
@@ -46,6 +49,7 @@ export async function fetchAccountInfo(): Promise<AccountInfo | null> {
     const { stdout } = await execFileAsync('claude', ['auth', 'status', '--json'], {
       timeout: 10_000,
       env: { ...process.env, PATH: process.env.PATH },
+      shell: isWindows,
     });
     const data = JSON.parse(stdout.trim());
     if (!data.loggedIn) return null;

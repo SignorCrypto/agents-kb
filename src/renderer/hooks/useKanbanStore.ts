@@ -175,7 +175,7 @@ export const useKanbanStore = create<KanbanState>((set, get) => ({
   })),
 
   selectJob: (id) => set({ selectedJobId: id }),
-  selectProject: (id) => set((s) => ({ selectedProjectId: s.selectedProjectId === id ? null : id })),
+  selectProject: (id) => set((s) => ({ selectedProjectId: s.selectedProjectId === id ? null : id, selectedJobId: null })),
   setShowNewJobDialog: (show) => set({ showNewJobDialog: show }),
   setShowSettings: (show) => set({ showSettings: show }),
   setShowSkillsPanel: (show) => set({ showSkillsPanel: show }),
