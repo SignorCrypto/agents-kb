@@ -520,3 +520,27 @@ export interface Job {
   jobDetailDrafts?: JobDetailDrafts;
   jobDetailDraftVersion?: number;
 }
+
+/* --- Git History --- */
+
+export interface GitCommit {
+  hash: string;
+  fullHash: string;
+  parents: string[];
+  authorName: string;
+  authorEmail: string;
+  date: string;
+  message: string;
+  refs: GitRef[];
+}
+
+export interface GitRef {
+  name: string;
+  type: 'branch' | 'tag' | 'remote' | 'head';
+}
+
+export interface GitLogResult {
+  commits: GitCommit[];
+  hasMore: boolean;
+  totalCount: number;
+}

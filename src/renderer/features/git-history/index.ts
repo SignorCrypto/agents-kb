@@ -1,0 +1,1 @@
+export { GitHistoryPanel } from './GitHistoryPanel';

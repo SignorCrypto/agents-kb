@@ -19,6 +19,7 @@ const api: ElectronAPI = {
   gitPush: (projectId, branch) => ipcRenderer.invoke('git:push', projectId, branch),
   gitCommit: (projectId, message, branch) => ipcRenderer.invoke('git:commit', projectId, message, branch),
   gitGenerateCommitMessage: (projectId, branch) => ipcRenderer.invoke('git:generate-commit-message', projectId, branch),
+  gitLog: (projectId: string, page?: number, branch?: string) => ipcRenderer.invoke('git:log', projectId, page, branch),
 
   // Jobs
   jobsList: () => ipcRenderer.invoke('jobs:list'),

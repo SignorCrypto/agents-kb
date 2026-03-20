@@ -7,6 +7,7 @@ import { Kbd } from './Kbd';
 import { LightbulbIcon, SettingsIcon, XIcon } from './Icons';
 import type { KanbanColumn, Project } from '../types/index';
 import { PROJECT_COLORS, getProjectColor } from '../types/index';
+import { GitHistoryPanel } from '../features/git-history';
 import { NotificationBadge } from './NotificationBadge';
 
 interface BranchStatus {
@@ -436,6 +437,7 @@ export function ProjectManager() {
   const setShowSettings = useKanbanStore((s) => s.setShowSettings);
   const setShowSkillsPanel = useKanbanStore((s) => s.setShowSkillsPanel);
   const [detailProjectId, setDetailProjectId] = useState<string | null>(null);
+  const [gitHistoryProjectId, setGitHistoryProjectId] = useState<string | null>(null);
   const [branchStatuses, setBranchStatuses] = useState<Map<string, BranchStatus[]>>(new Map());
   const [pushConfirm, setPushConfirm] = useState<{ projectId: string; branch: string } | null>(null);
   const [pushing, setPushing] = useState(false);
@@ -752,6 +754,27 @@ export function ProjectManager() {
                   }`}>
                   {project.name}
                 </span>
+                {project.isGitRepo !== false && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setGitHistoryProjectId(gitHistoryProjectId === project.id ? null : project.id);
+                    }}
+                    className={`p-0.5 rounded flex items-center justify-center transition-all shrink-0 ${gitHistoryProjectId === project.id
+                        ? 'opacity-100 text-content-secondary bg-surface-tertiary/70'
+                        : 'opacity-0 group-hover:opacity-100 text-content-tertiary hover:text-content-secondary hover:bg-surface-tertiary/50'
+                      }`}
+                    title="Git history"
+                    aria-label="Git history"
+                  >
+                    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="5" cy="4" r="2" />
+                      <circle cx="5" cy="12" r="2" />
+                      <circle cx="13" cy="8" r="2" />
+                      <path d="M5 6v4M7 12h4c1.1 0 2-.9 2-2" />
+                    </svg>
+                  </button>
+                )}
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -1028,6 +1051,46 @@ export function ProjectManager() {
             onSetDefaultBranch={(branch) => handleSetDefaultBranch(detailProjectId, branch)}
             onSetColor={(color) => handleSetColor(detailProjectId, color)}
           />
+        );
+      })()}
+
+      {/* Git history dialog */}
+      {gitHistoryProjectId && (() => {
+        const project = projects.find(p => p.id === gitHistoryProjectId);
+        if (!project) return null;
+        return createPortal(
+          <div
+            className="fixed inset-0 z-[100] flex items-center justify-center"
+            onClick={() => setGitHistoryProjectId(null)}
+          >
+            <div className="absolute inset-0 bg-surface-overlay/40 backdrop-blur-[2px]" />
+            <div
+              className="relative rounded-xl border border-chrome/50 bg-surface-elevated shadow-2xl shadow-surface-overlay/20 overflow-hidden animate-[dialogIn_150ms_ease-out] flex flex-col w-[900px] h-[600px]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between px-4 pt-3 pb-0 shrink-0">
+                <div className="flex items-center gap-2">
+                  <span
+                    className="inline-block w-2 h-2 rounded-full shrink-0"
+                    style={{ backgroundColor: getProjectColor(project.color) }}
+                  />
+                  <span className="text-sm font-semibold text-content-primary truncate">{project.name}</span>
+                </div>
+                <button
+                  onClick={() => setGitHistoryProjectId(null)}
+                  className="p-1 rounded text-content-tertiary hover:text-content-primary hover:bg-surface-tertiary/70 transition-colors"
+                  aria-label="Close"
+                >
+                  <XIcon size={12} />
+                </button>
+              </div>
+              <div className="flex-1 min-h-0 flex flex-col">
+                <GitHistoryPanel projectId={project.id} />
+              </div>
+            </div>
+          </div>,
+          document.body,
         );
       })()}
     </div>

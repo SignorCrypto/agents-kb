@@ -28,6 +28,7 @@ import { checkCliHealth, spawnLogin, fetchAccountInfo } from './cli-health';
 import { isDemoMode, getDemoProjects, getDemoJobs, getDemoSettings, getDemoBranchStatuses } from './demo-loader';
 import { isGitRepoRoot, listBranches, checkoutBranch, gitStageAll, gitCommit, getBranchesStatus, gitPush } from './git-snapshot';
 import { setSkillsCache, registerSkillsIpc } from './skills/index';
+import { registerGitHistoryIpc } from './git-history/index';
 import { listProjectFiles } from './file-list';
 import { TitleGenerationQueue } from './title-generation';
 import type { Job, JobImage, JobDetailDrafts, JobComposerDraft, PendingQuestionDraft, OutputEntry, RawMessage, PendingQuestion, AppSettings, Project, ModelChoice, EffortLevel, PromptConfig, PermissionMode, DynamicModelInfo, ModelOption, Skill, AccountInfo, ThinkingMode } from '../shared/types';
@@ -1046,7 +1047,7 @@ function registerDemoHandlers(): void {
   const noOpChannels = [
     'projects:add', 'projects:rename', 'projects:remove', 'projects:reorder',
     'projects:set-default-branch', 'projects:set-color', 'projects:open-folder', 'projects:open-in-editor',
-    'git:list-branches', 'git:push', 'git:commit', 'git:generate-commit-message',
+    'git:list-branches', 'git:push', 'git:commit', 'git:generate-commit-message', 'git:log',
     'files:list',
     'jobs:create', 'jobs:cancel', 'jobs:delete', 'jobs:retry', 'jobs:respond', 'jobs:steer',
     'jobs:accept-plan', 'jobs:edit-plan', 'jobs:follow-up', 'jobs:get-diff', 'jobs:reject-job',
@@ -1995,6 +1996,7 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
 
   // === Skills ===
   registerSkillsIpc();
+  registerGitHistoryIpc();
 
   // === Account Info ===
   // Eagerly fetch at startup
