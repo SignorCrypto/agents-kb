@@ -38,26 +38,6 @@ function StatusBadge({ status }: { status: ChangedFile['status'] }) {
   );
 }
 
-function JobPill({ job }: { job: Job }) {
-  const label = job.title || job.prompt?.slice(0, 20) || job.id.slice(0, 6);
-  const isRunning = job.status === 'running';
-  return (
-    <span
-      className={`inline-flex items-center gap-0.5 px-1 py-px rounded text-[9px] leading-tight max-w-[80px] truncate ${
-        isRunning
-          ? 'bg-semantic-warning/15 text-semantic-warning'
-          : 'bg-surface-tertiary/60 text-content-tertiary'
-      }`}
-      title={`${label}${isRunning ? ' (running)' : ''}`}
-    >
-      {isRunning && (
-        <span className="w-1 h-1 rounded-full bg-semantic-warning animate-pulse shrink-0" />
-      )}
-      {label}
-    </span>
-  );
-}
-
 export function FileListPanel({
   files,
   loading,
@@ -206,7 +186,6 @@ export function FileListPanel({
             const isSelected = selectedFile === file.path;
             const isStaged = stagedFiles.has(file.path);
             const isBeingEdited = runningJobFiles.has(file.path);
-            const attributedJobs = jobAttributions.get(file.path);
             const fileName = file.path.split('/').pop() || file.path;
             const dirPath = file.path.includes('/')
               ? file.path.slice(0, file.path.lastIndexOf('/') + 1)
@@ -237,24 +216,25 @@ export function FileListPanel({
                   {/* Status badge */}
                   <StatusBadge status={file.status} />
 
-                  {/* File name */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex text-[11px] font-mono min-w-0" title={file.path}>
-                      <span className="text-content-tertiary truncate direction-rtl text-left shrink min-w-0">{dirPath}</span>
-                      <span className="text-content-primary font-medium whitespace-nowrap shrink-0">{fileName}</span>
+                  {/* File name + diff stats / path */}
+                  <div className="flex-1 min-w-0" title={file.path}>
+                    {/* Row 1: name + diff stats */}
+                    <div className="flex items-center gap-1.5 text-[11px] font-mono min-w-0">
+                      <span className="text-content-primary font-medium truncate">{fileName}</span>
+                      {(file.additions != null || file.deletions != null) && (
+                        <span className="flex items-center gap-1 shrink-0">
+                          {file.additions != null && file.additions > 0 && (
+                            <span className="text-[10px] tabular-nums text-semantic-success">+{file.additions}</span>
+                          )}
+                          {file.deletions != null && file.deletions > 0 && (
+                            <span className="text-[10px] tabular-nums text-semantic-error">-{file.deletions}</span>
+                          )}
+                        </span>
+                      )}
                     </div>
-                    {/* Job attribution pills */}
-                    {attributedJobs && attributedJobs.length > 0 && (
-                      <div className="flex items-center gap-0.5 mt-0.5 flex-wrap">
-                        {attributedJobs.slice(0, 3).map((job) => (
-                          <JobPill key={job.id} job={job} />
-                        ))}
-                        {attributedJobs.length > 3 && (
-                          <span className="text-[9px] text-content-tertiary">
-                            +{attributedJobs.length - 3}
-                          </span>
-                        )}
-                      </div>
+                    {/* Row 2: path */}
+                    {dirPath && (
+                      <div className="text-[10px] font-mono text-content-tertiary truncate mt-px">{dirPath}</div>
                     )}
                   </div>
 

@@ -275,6 +275,25 @@ export async function listChangedFilesDetailed(projectPath: string): Promise<Cha
       'git', ['status', '--porcelain=v1', '--untracked-files=all'],
       { cwd: projectPath, ...GIT_OPTIONS },
     );
+
+    // Fetch per-file diff stats (additions/deletions)
+    const statMap = new Map<string, { additions: number; deletions: number }>();
+    try {
+      const { stdout: numstat } = await execFileAsync(
+        'git', ['diff', '--numstat', 'HEAD'],
+        { cwd: projectPath, ...GIT_OPTIONS },
+      );
+      for (const line of numstat.split('\n').filter(Boolean)) {
+        const [add, del, ...pathParts] = line.split('\t');
+        const p = pathParts.join('\t');
+        if (p && add !== '-' && del !== '-') {
+          statMap.set(p, { additions: parseInt(add, 10), deletions: parseInt(del, 10) });
+        }
+      }
+    } catch {
+      // diff stats are optional — ignore errors (e.g. no HEAD yet)
+    }
+
     return stdout
       .split('\n')
       .map((line) => line.trimEnd())
@@ -294,6 +313,11 @@ export async function listChangedFilesDetailed(projectPath: string): Promise<Cha
         };
         if (renameParts.length > 1) {
           changedFile.oldPath = renameParts[0].trim();
+        }
+        const stats = statMap.get(filePath);
+        if (stats) {
+          changedFile.additions = stats.additions;
+          changedFile.deletions = stats.deletions;
         }
         return changedFile;
       })

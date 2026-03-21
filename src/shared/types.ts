@@ -527,6 +527,8 @@ export interface ChangedFile {
   path: string;
   status: 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked';
   oldPath?: string;
+  additions?: number;
+  deletions?: number;
 }
 
 /* --- Git History --- */
