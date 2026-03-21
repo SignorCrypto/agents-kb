@@ -1,7 +1,7 @@
-export type { KanbanColumn, JobStatus, Project, OutputEntry, RawMessage, PendingQuestion, SubQuestion, FollowUp, Job, JobImage, DraftImage, JobComposerDraft, PendingQuestionDraft, JobDetailDrafts, JobStepSnapshot, JobFileSnapshot, ShortcutBinding, AppSettings, ThemeMode, ModelChoice, EffortLevel, ThinkingMode, ModelOption, EffortOption, ThinkingModeOption, PromptConfig, PromptId, PreferredEditor, PermissionMode, PermissionModeOption, ProjectColorId, CliHealthStatus, PhaseTokenUsage, Skill, DynamicModelInfo, RewindFilesResult, AccountInfo, GitCommit, GitRef, GitLogResult } from '../../shared/types';
+export type { KanbanColumn, JobStatus, Project, OutputEntry, RawMessage, PendingQuestion, SubQuestion, FollowUp, Job, JobImage, DraftImage, JobComposerDraft, PendingQuestionDraft, JobDetailDrafts, JobStepSnapshot, JobFileSnapshot, ShortcutBinding, AppSettings, ThemeMode, ModelChoice, EffortLevel, ThinkingMode, ModelOption, EffortOption, ThinkingModeOption, PromptConfig, PromptId, PreferredEditor, PermissionMode, PermissionModeOption, ProjectColorId, CliHealthStatus, PhaseTokenUsage, Skill, DynamicModelInfo, RewindFilesResult, AccountInfo, GitCommit, GitRef, GitLogResult, ChangedFile } from '../../shared/types';
 export { DEFAULT_SETTINGS, DEFAULT_SHORTCUTS, DEFAULT_COMMIT_PROMPT, DEFAULT_PROMPT_CONFIGS, PROMPT_IDS, EFFORT_LABELS, getEffortOptionsForModel, getEffortOptionsForThinking, getThinkingDisplay, getThinkingModeOptionsForModel, normalizeEffortForThinking, PROJECT_COLORS, getProjectColor, PERMISSION_MODE_CATALOG } from '../../shared/types';
 
-import type { Project, Job, JobImage, JobDetailDrafts, OutputEntry, RawMessage, PendingQuestion, AppSettings, ModelChoice, EffortLevel, ThinkingMode, CliHealthStatus, Skill, AccountInfo, RewindFilesResult, ModelOption, GitLogResult } from '../../shared/types';
+import type { Project, Job, JobImage, JobDetailDrafts, OutputEntry, RawMessage, PendingQuestion, AppSettings, ModelChoice, EffortLevel, ThinkingMode, CliHealthStatus, Skill, AccountInfo, RewindFilesResult, ModelOption, GitLogResult, ChangedFile } from '../../shared/types';
 
 // IPC API exposed via preload
 export interface ElectronAPI {
@@ -35,9 +35,13 @@ export interface ElectronAPI {
     projectId: string,
     message: string,
     branch?: string,
+    files?: string[],
   ) => Promise<{ success: boolean; sha?: string; error?: string; deletedJobIds?: string[]; warning?: string }>;
   gitGenerateCommitMessage: (projectId: string, branch?: string) => Promise<string>;
   gitLog: (projectId: string, page?: number, branch?: string) => Promise<GitLogResult | null>;
+  gitListChangedFiles: (projectId: string) => Promise<ChangedFile[]>;
+  gitDiffFile: (projectId: string, filePath: string, isUntracked: boolean) => Promise<string>;
+  gitDiscardFile: (projectId: string, filePath: string, isUntracked: boolean) => Promise<{ success: boolean; error?: string }>;
 
   // Jobs
   jobsList: () => Promise<Job[]>;

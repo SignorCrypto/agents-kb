@@ -26,7 +26,7 @@ import { sessionManager } from './session-manager';
 import { notifyInputNeeded, notifyJobComplete, notifyJobError, notifyPlanReady } from './notifications';
 import { checkCliHealth, spawnLogin, fetchAccountInfo } from './cli-health';
 import { isDemoMode, getDemoProjects, getDemoJobs, getDemoSettings, getDemoBranchStatuses } from './demo-loader';
-import { isGitRepoRoot, listBranches, checkoutBranch, gitStageAll, gitCommit, getBranchesStatus, gitPush } from './git-snapshot';
+import { isGitRepoRoot, listBranches, checkoutBranch, gitStageAll, gitStageFiles, gitCommit, getBranchesStatus, gitPush, listChangedFilesDetailed, getFileDiff, gitDiscardFile } from './git-snapshot';
 import { setSkillsCache, registerSkillsIpc } from './skills/index';
 import { registerGitHistoryIpc } from './git-history/index';
 import { listProjectFiles } from './file-list';
@@ -1048,6 +1048,7 @@ function registerDemoHandlers(): void {
     'projects:add', 'projects:rename', 'projects:remove', 'projects:reorder',
     'projects:set-default-branch', 'projects:set-color', 'projects:open-folder', 'projects:open-in-editor',
     'git:list-branches', 'git:push', 'git:commit', 'git:generate-commit-message', 'git:log',
+    'git:list-changed-files', 'git:diff-file', 'git:discard-file',
     'files:list',
     'jobs:create', 'jobs:cancel', 'jobs:delete', 'jobs:retry', 'jobs:respond', 'jobs:steer',
     'jobs:accept-plan', 'jobs:edit-plan', 'jobs:follow-up', 'jobs:get-diff', 'jobs:reject-job',
@@ -1357,12 +1358,16 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     return gitPush(project.path, branch);
   });
 
-  ipcMain.handle('git:commit', async (_event, projectId: string, message: string, branch?: string) => {
+  ipcMain.handle('git:commit', async (_event, projectId: string, message: string, branch?: string, files?: string[]) => {
     const project = getProjects().find(p => p.id === projectId);
     if (!project) return { success: false, error: 'Project not found' };
     try {
       const targetBranch = await resolveCommitBranch(project, branch);
-      await gitStageAll(project.path);
+      if (files && files.length > 0) {
+        await gitStageFiles(project.path, files);
+      } else {
+        await gitStageAll(project.path);
+      }
       const sha = await gitCommit(project.path, message);
       const settings = getSettings();
       let deletedJobIds: string[] = [];
@@ -1394,6 +1399,24 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
       { model: config.model, effort: config.effort },
     );
     return result?.message?.trim() || 'chore: update project';
+  });
+
+  ipcMain.handle('git:list-changed-files', async (_event, projectId: string) => {
+    const project = getProjects().find(p => p.id === projectId);
+    if (!project) return [];
+    return listChangedFilesDetailed(project.path);
+  });
+
+  ipcMain.handle('git:diff-file', async (_event, projectId: string, filePath: string, isUntracked: boolean) => {
+    const project = getProjects().find(p => p.id === projectId);
+    if (!project) return '';
+    return getFileDiff(project.path, filePath, isUntracked);
+  });
+
+  ipcMain.handle('git:discard-file', async (_event, projectId: string, filePath: string, isUntracked: boolean) => {
+    const project = getProjects().find(p => p.id === projectId);
+    if (!project) return { success: false, error: 'Project not found' };
+    return gitDiscardFile(project.path, filePath, isUntracked);
   });
 
   // === Files ===

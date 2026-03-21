@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useElectronAPI } from '../hooks/useElectronAPI';
 
-interface DiffFile {
+export interface DiffFile {
   path: string;
   additions: number;
   deletions: number;
@@ -9,19 +9,19 @@ interface DiffFile {
   note?: string;
 }
 
-interface DiffHunk {
+export interface DiffHunk {
   header: string;
   lines: DiffLine[];
 }
 
-interface DiffLine {
+export interface DiffLine {
   type: '+' | '-' | ' ';
   content: string;
   oldNum?: number;
   newNum?: number;
 }
 
-function parseDiff(raw: string): DiffFile[] {
+export function parseDiff(raw: string): DiffFile[] {
   const files: DiffFile[] = [];
   const fileChunks = raw.split(/^diff --git /m).filter(Boolean);
 
@@ -89,7 +89,7 @@ function parseDiff(raw: string): DiffFile[] {
   return files;
 }
 
-function StatBar({ additions, deletions }: { additions: number; deletions: number }) {
+export function StatBar({ additions, deletions }: { additions: number; deletions: number }) {
   const total = additions + deletions;
   if (total === 0) return null;
   const blocks = 5;
@@ -112,7 +112,7 @@ function StatBar({ additions, deletions }: { additions: number; deletions: numbe
   );
 }
 
-function FileSection({ file }: { file: DiffFile }) {
+export function FileSection({ file }: { file: DiffFile }) {
   const [collapsed, setCollapsed] = useState(false);
 
   const fileName = file.path.split('/').pop() || file.path;
@@ -147,6 +147,7 @@ function FileSection({ file }: { file: DiffFile }) {
       {/* Diff lines */}
       {!collapsed && (
         <div className="overflow-x-auto">
+          <div className="min-w-fit">
           {file.note && file.hunks.length === 0 && (
             <div className="px-3 py-2 text-[11px] text-content-tertiary border-t border-chrome-subtle/20 bg-surface-tertiary/20">
               {file.note}
@@ -197,6 +198,7 @@ function FileSection({ file }: { file: DiffFile }) {
               ))}
             </div>
           ))}
+          </div>
         </div>
       )}
     </div>

@@ -2,6 +2,13 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer utilities {
+  .direction-rtl {
+    direction: rtl;
+    unicode-bidi: plaintext;
+  }
+}
+
 @layer base {
   :root {
     /* Surface */

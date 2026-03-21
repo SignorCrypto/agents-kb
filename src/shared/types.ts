@@ -521,6 +521,14 @@ export interface Job {
   jobDetailDraftVersion?: number;
 }
 
+/* --- Git Changed Files --- */
+
+export interface ChangedFile {
+  path: string;
+  status: 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked';
+  oldPath?: string;
+}
+
 /* --- Git History --- */
 
 export interface GitCommit {

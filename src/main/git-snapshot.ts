@@ -1,8 +1,10 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
+import fs from 'fs/promises';
 import { createHash } from 'crypto';
 import type { FileState } from './job-step-history';
+import type { ChangedFile } from '../shared/types';
 
 export interface GitSnapshot {
   commitSha: string;
@@ -250,6 +252,119 @@ export async function listChangedFiles(projectPath: string): Promise<string[]> {
       .filter((filePath): filePath is string => Boolean(filePath));
   } catch {
     return [];
+  }
+}
+
+function parseStatusCode(xy: string): ChangedFile['status'] {
+  const x = xy[0];
+  const y = xy[1];
+  if (x === '?' && y === '?') return 'untracked';
+  if (x === 'R' || y === 'R') return 'renamed';
+  if (x === 'A' || y === 'A') return 'added';
+  if (x === 'D' || y === 'D') return 'deleted';
+  return 'modified';
+}
+
+export async function listChangedFilesDetailed(projectPath: string): Promise<ChangedFile[]> {
+  if (!(await isGitRepoRoot(projectPath))) return [];
+
+  try {
+    // Use execFileAsync directly — the git() helper trims the full stdout,
+    // which strips the leading space from the first line's XY status code.
+    const { stdout } = await execFileAsync(
+      'git', ['status', '--porcelain=v1', '--untracked-files=all'],
+      { cwd: projectPath, ...GIT_OPTIONS },
+    );
+    return stdout
+      .split('\n')
+      .map((line) => line.trimEnd())
+      .filter(Boolean)
+      .map((line) => {
+        const xy = line.slice(0, 2);
+        const rest = line.slice(3).trim();
+        if (!rest) return null;
+
+        const renameParts = rest.split(' -> ');
+        const filePath = (renameParts[renameParts.length - 1] || '').trim();
+        if (!filePath) return null;
+
+        const changedFile: ChangedFile = {
+          path: filePath,
+          status: parseStatusCode(xy),
+        };
+        if (renameParts.length > 1) {
+          changedFile.oldPath = renameParts[0].trim();
+        }
+        return changedFile;
+      })
+      .filter((f): f is ChangedFile => f !== null);
+  } catch {
+    return [];
+  }
+}
+
+export async function getFileDiff(projectPath: string, filePath: string, isUntracked: boolean = false): Promise<string> {
+  if (!(await isGitRepoRoot(projectPath))) return '';
+
+  try {
+    if (isUntracked) {
+      try {
+        return await git(projectPath, 'diff', '--no-index', '--', '/dev/null', filePath);
+      } catch (err) {
+        // git diff --no-index exits with code 1 when files differ, which is expected
+        if (err instanceof Error && 'stdout' in err) {
+          return (err as Error & { stdout: string }).stdout || '';
+        }
+        return '';
+      }
+    }
+
+    // Try diff against HEAD first (shows both staged and unstaged vs last commit)
+    try {
+      const diff = await git(projectPath, 'diff', 'HEAD', '--', filePath);
+      if (diff) return diff;
+    } catch {
+      // HEAD might not exist (empty repo), fall through
+    }
+
+    // Fallback: unstaged changes only
+    try {
+      const diff = await git(projectPath, 'diff', '--', filePath);
+      if (diff) return diff;
+    } catch {
+      // ignore
+    }
+
+    // Fallback: staged changes only
+    try {
+      return await git(projectPath, 'diff', '--cached', '--', filePath);
+    } catch {
+      return '';
+    }
+  } catch {
+    return '';
+  }
+}
+
+export async function gitStageFiles(projectPath: string, files: string[]): Promise<void> {
+  if (files.length === 0) return;
+  await git(projectPath, 'add', '--', ...files);
+}
+
+export async function gitDiscardFile(
+  projectPath: string,
+  filePath: string,
+  isUntracked: boolean = false,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    if (isUntracked) {
+      await fs.unlink(path.join(projectPath, filePath));
+    } else {
+      await git(projectPath, 'checkout', 'HEAD', '--', filePath);
+    }
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
