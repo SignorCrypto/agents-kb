@@ -23,6 +23,7 @@ const api: ElectronAPI = {
   gitListChangedFiles: (projectId) => ipcRenderer.invoke('git:list-changed-files', projectId),
   gitDiffFile: (projectId, filePath, isUntracked) => ipcRenderer.invoke('git:diff-file', projectId, filePath, isUntracked),
   gitDiscardFile: (projectId, filePath, isUntracked) => ipcRenderer.invoke('git:discard-file', projectId, filePath, isUntracked),
+  gitUnpushedCommits: (projectId, branch) => ipcRenderer.invoke('git:unpushed-commits', projectId, branch),
 
   // Jobs
   jobsList: () => ipcRenderer.invoke('jobs:list'),

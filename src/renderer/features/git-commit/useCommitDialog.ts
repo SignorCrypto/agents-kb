@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useElectronAPI } from '../../hooks/useElectronAPI';
 import { useKanbanStore } from '../../hooks/useKanbanStore';
-import type { ChangedFile, Job } from '../../types/index';
+import type { ChangedFile, GitCommit, Job } from '../../types/index';
 
 export interface CommitDialogState {
   // File list
@@ -22,6 +22,8 @@ export interface CommitDialogState {
   clearedCompletedCount: number;
   // Push
   pushing: boolean;
+  unpushedCommits: GitCommit[];
+  loadingUnpushed: boolean;
   // Job context
   jobAttributions: Map<string, Job[]>;
   runningJobs: Job[];
@@ -69,6 +71,8 @@ export function useCommitDialog(
   const [commitPhase, setCommitPhase] = useState<'compose' | 'push'>('compose');
   const [clearedCompletedCount, setClearedCompletedCount] = useState(0);
   const [pushing, setPushing] = useState(false);
+  const [unpushedCommits, setUnpushedCommits] = useState<GitCommit[]>([]);
+  const [loadingUnpushed, setLoadingUnpushed] = useState(false);
 
   // Discard confirmation tracking
   const [discardingFile, setDiscardingFile] = useState<string | null>(null);
@@ -276,6 +280,11 @@ export function useCommitDialog(
     const branchAfter = updated?.find((b) => b.name === branch);
     if (branchAfter && branchAfter.ahead > 0) {
       setCommitPhase('push');
+      setLoadingUnpushed(true);
+      api.gitUnpushedCommits(projectId, branch)
+        .then((commits) => setUnpushedCommits(commits))
+        .catch(() => setUnpushedCommits([]))
+        .finally(() => setLoadingUnpushed(false));
     } else {
       if (result.warning) {
         // Stay open to show warning
@@ -312,6 +321,8 @@ export function useCommitDialog(
     commitPhase,
     clearedCompletedCount,
     pushing,
+    unpushedCommits,
+    loadingUnpushed,
     jobAttributions,
     runningJobs,
     runningJobFiles,

@@ -5,9 +5,10 @@ import { useElectronAPI } from '../hooks/useElectronAPI';
 import { ClaudeMdEditor } from './ClaudeMdEditor';
 import { Kbd } from './Kbd';
 import { LightbulbIcon, SettingsIcon, XIcon } from './Icons';
-import type { KanbanColumn, Project } from '../types/index';
+import type { KanbanColumn, GitCommit, Project } from '../types/index';
 import { PROJECT_COLORS, getProjectColor } from '../types/index';
 import { GitHistoryPanel } from '../features/git-history';
+import GitCommitRow from '../features/git-history/GitCommitRow';
 import { CommitDialog } from '../features/git-commit';
 import { NotificationBadge } from './NotificationBadge';
 
@@ -442,6 +443,8 @@ export function ProjectManager() {
   const [pushConfirm, setPushConfirm] = useState<{ projectId: string; branch: string } | null>(null);
   const [pushing, setPushing] = useState(false);
   const [pushError, setPushError] = useState<string | null>(null);
+  const [pushUnpushedCommits, setPushUnpushedCommits] = useState<GitCommit[]>([]);
+  const [loadingPushCommits, setLoadingPushCommits] = useState(false);
   const [commitDialog, setCommitDialog] = useState<{ projectId: string; branch: string } | null>(null);
   const previousStatusesRef = useRef<Map<string, string>>(new Map());
 
@@ -787,6 +790,12 @@ export function ProjectManager() {
                             openCommitDialog(project.id, b.name);
                           } else if (canPush) {
                             setPushConfirm({ projectId: project.id, branch: b.name });
+                            setPushUnpushedCommits([]);
+                            setLoadingPushCommits(true);
+                            api.gitUnpushedCommits(project.id, b.name)
+                              .then((commits) => setPushUnpushedCommits(commits))
+                              .catch(() => setPushUnpushedCommits([]))
+                              .finally(() => setLoadingPushCommits(false));
                           }
                         }}
                         title={chipTitle}
@@ -842,13 +851,43 @@ export function ProjectManager() {
         >
           <div className="absolute inset-0 bg-surface-overlay/40 backdrop-blur-[2px]" />
           <div
-            className="relative rounded-xl border border-chrome/50 bg-surface-elevated shadow-2xl p-4 w-72 animate-[dialogIn_150ms_ease-out]"
+            className="relative rounded-xl border border-chrome/50 bg-surface-elevated shadow-2xl p-4 w-[560px] max-w-[90vw] animate-[dialogIn_150ms_ease-out]"
             onClick={(e) => e.stopPropagation()}
           >
             <p className="text-sm text-content-primary font-medium">Push to remote?</p>
             <p className="text-xs text-content-secondary mt-1.5">
               Push branch <span className="font-mono font-medium text-content-primary">{pushConfirm.branch}</span> to origin?
             </p>
+
+            {/* Unpushed commits */}
+            {loadingPushCommits ? (
+              <div className="mt-3 rounded-lg border border-chrome-subtle/50 bg-surface-tertiary/20 p-3">
+                <div className="flex items-center gap-2 text-xs text-content-tertiary">
+                  <svg className="animate-spin h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
+                    <path d="M12 2a10 10 0 019.5 7" strokeLinecap="round" />
+                  </svg>
+                  <span className="text-[11px]">Loading commits...</span>
+                </div>
+              </div>
+            ) : pushUnpushedCommits.length > 0 ? (
+              <div className="mt-3">
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <span className="text-[10px] font-medium uppercase tracking-wider text-content-tertiary">
+                    Commits
+                  </span>
+                  <span className="text-[10px] tabular-nums text-content-tertiary">
+                    ({pushUnpushedCommits.length})
+                  </span>
+                </div>
+                <div className="rounded-lg border border-chrome-subtle/50 bg-surface-tertiary/10 overflow-hidden max-h-[200px] overflow-y-auto">
+                  {pushUnpushedCommits.map((commit) => (
+                    <GitCommitRow key={commit.fullHash} commit={commit} />
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
             {pushError && (
               <p className="text-xs text-status-error mt-2 bg-status-error/10 rounded px-2 py-1.5 break-words">
                 {pushError}

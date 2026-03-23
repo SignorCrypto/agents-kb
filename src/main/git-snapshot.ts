@@ -4,7 +4,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import { createHash } from 'crypto';
 import type { FileState } from './job-step-history';
-import type { ChangedFile } from '../shared/types';
+import type { ChangedFile, GitCommit, GitRef } from '../shared/types';
 
 export interface GitSnapshot {
   commitSha: string;
@@ -227,6 +227,51 @@ export async function gitPush(projectPath: string, branch: string): Promise<{ su
     return { success: true };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+function parseRefs(refStr: string): GitRef[] {
+  if (!refStr.trim()) return [];
+  return refStr.split(',').map((r) => r.trim()).filter(Boolean).map((raw) => {
+    if (raw.startsWith('HEAD -> ')) {
+      return { name: raw.replace('HEAD -> ', ''), type: 'head' as const };
+    }
+    if (raw.startsWith('tag: ')) {
+      return { name: raw.replace('tag: ', ''), type: 'tag' as const };
+    }
+    if (raw === 'HEAD') {
+      return { name: 'HEAD', type: 'head' as const };
+    }
+    if (raw.includes('/')) {
+      return { name: raw, type: 'remote' as const };
+    }
+    return { name: raw, type: 'branch' as const };
+  });
+}
+
+export async function getUnpushedCommits(projectPath: string, branch: string): Promise<GitCommit[]> {
+  if (!(await isGitRepoRoot(projectPath))) return [];
+
+  try {
+    const format = '%h%x00%H%x00%P%x00%an%x00%ae%x00%aI%x00%s%x00%D';
+    const output = await git(projectPath, 'log', `${branch}@{upstream}..${branch}`, `--format=${format}`);
+    const lines = output.split('\n').filter((l) => l.includes('\0'));
+
+    const fullToAbbrev = new Map<string, string>();
+    for (const line of lines) {
+      const parts = line.split('\0');
+      if (parts.length >= 2) fullToAbbrev.set(parts[1], parts[0]);
+    }
+
+    return lines.map((line) => {
+      const [hash, fullHash, parentsFull, authorName, authorEmail, date, message, refsRaw] = line.split('\0');
+      const parents = parentsFull
+        ? parentsFull.split(' ').map((p) => fullToAbbrev.get(p) || p.slice(0, 7)).filter(Boolean)
+        : [];
+      return { hash, fullHash, parents, authorName, authorEmail, date, message, refs: parseRefs(refsRaw || '') };
+    });
+  } catch {
+    return [];
   }
 }
 

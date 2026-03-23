@@ -26,7 +26,7 @@ import { sessionManager } from './session-manager';
 import { notifyInputNeeded, notifyJobComplete, notifyJobError, notifyPlanReady } from './notifications';
 import { checkCliHealth, spawnLogin, fetchAccountInfo } from './cli-health';
 import { isDemoMode, getDemoProjects, getDemoJobs, getDemoSettings, getDemoBranchStatuses } from './demo-loader';
-import { isGitRepoRoot, listBranches, checkoutBranch, gitStageAll, gitStageFiles, gitCommit, getBranchesStatus, gitPush, listChangedFilesDetailed, getFileDiff, gitDiscardFile } from './git-snapshot';
+import { isGitRepoRoot, listBranches, checkoutBranch, gitStageAll, gitStageFiles, gitCommit, getBranchesStatus, gitPush, getUnpushedCommits, listChangedFilesDetailed, getFileDiff, gitDiscardFile } from './git-snapshot';
 import { setSkillsCache, registerSkillsIpc } from './skills/index';
 import { registerGitHistoryIpc } from './git-history/index';
 import { listProjectFiles } from './file-list';
@@ -1048,7 +1048,7 @@ function registerDemoHandlers(): void {
     'projects:add', 'projects:rename', 'projects:remove', 'projects:reorder',
     'projects:set-default-branch', 'projects:set-color', 'projects:open-folder', 'projects:open-in-editor',
     'git:list-branches', 'git:push', 'git:commit', 'git:generate-commit-message', 'git:log',
-    'git:list-changed-files', 'git:diff-file', 'git:discard-file',
+    'git:list-changed-files', 'git:diff-file', 'git:discard-file', 'git:unpushed-commits',
     'files:list',
     'jobs:create', 'jobs:cancel', 'jobs:delete', 'jobs:retry', 'jobs:respond', 'jobs:steer',
     'jobs:accept-plan', 'jobs:edit-plan', 'jobs:follow-up', 'jobs:get-diff', 'jobs:reject-job',
@@ -1417,6 +1417,12 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     const project = getProjects().find(p => p.id === projectId);
     if (!project) return { success: false, error: 'Project not found' };
     return gitDiscardFile(project.path, filePath, isUntracked);
+  });
+
+  ipcMain.handle('git:unpushed-commits', async (_event, projectId: string, branch: string) => {
+    const project = getProjects().find(p => p.id === projectId);
+    if (!project) return [];
+    return getUnpushedCommits(project.path, branch);
   });
 
   // === Files ===
