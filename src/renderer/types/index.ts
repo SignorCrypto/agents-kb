@@ -29,8 +29,9 @@ export interface ElectronAPI {
 
   // Git
   gitListBranches: (projectId: string) => Promise<{ branches: string[]; current: string } | null>;
-  gitBranchesStatus: (projectId: string) => Promise<{ name: string; isCurrent: boolean; ahead: number; dirtyFiles: number }[] | null>;
+  gitBranchesStatus: (projectId: string) => Promise<{ name: string; isCurrent: boolean; ahead: number; dirtyFiles: number; hasUpstream: boolean }[] | null>;
   gitPush: (projectId: string, branch: string) => Promise<{ success: boolean; error?: string }>;
+  gitDeleteBranch: (projectId: string, branch: string) => Promise<{ success: boolean; error?: string }>;
   gitCommit: (
     projectId: string,
     message: string,

@@ -17,6 +17,7 @@ const api: ElectronAPI = {
   gitListBranches: (projectId) => ipcRenderer.invoke('git:list-branches', projectId),
   gitBranchesStatus: (projectId) => ipcRenderer.invoke('git:branches-status', projectId),
   gitPush: (projectId, branch) => ipcRenderer.invoke('git:push', projectId, branch),
+  gitDeleteBranch: (projectId, branch) => ipcRenderer.invoke('git:delete-branch', projectId, branch),
   gitCommit: (projectId, message, branch, files) => ipcRenderer.invoke('git:commit', projectId, message, branch, files),
   gitGenerateCommitMessage: (projectId, branch) => ipcRenderer.invoke('git:generate-commit-message', projectId, branch),
   gitLog: (projectId: string, page?: number, branch?: string) => ipcRenderer.invoke('git:log', projectId, page, branch),

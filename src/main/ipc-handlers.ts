@@ -26,7 +26,7 @@ import { sessionManager } from './session-manager';
 import { notifyInputNeeded, notifyJobComplete, notifyJobError, notifyPlanReady } from './notifications';
 import { checkCliHealth, spawnLogin, fetchAccountInfo } from './cli-health';
 import { isDemoMode, getDemoProjects, getDemoJobs, getDemoSettings, getDemoBranchStatuses } from './demo-loader';
-import { isGitRepoRoot, listBranches, checkoutBranch, gitStageAll, gitStageFiles, gitCommit, getBranchesStatus, gitPush, getUnpushedCommits, listChangedFilesDetailed, getFileDiff, gitDiscardFile } from './git-snapshot';
+import { isGitRepoRoot, listBranches, checkoutBranch, gitStageAll, gitStageFiles, gitCommit, getBranchesStatus, gitPush, gitDeleteBranch, getUnpushedCommits, listChangedFilesDetailed, getFileDiff, gitDiscardFile } from './git-snapshot';
 import { setSkillsCache, registerSkillsIpc } from './skills/index';
 import { registerGitHistoryIpc } from './git-history/index';
 import { listProjectFiles } from './file-list';
@@ -1047,7 +1047,7 @@ function registerDemoHandlers(): void {
   const noOpChannels = [
     'projects:add', 'projects:rename', 'projects:remove', 'projects:reorder',
     'projects:set-default-branch', 'projects:set-color', 'projects:open-folder', 'projects:open-in-editor',
-    'git:list-branches', 'git:push', 'git:commit', 'git:generate-commit-message', 'git:log',
+    'git:list-branches', 'git:push', 'git:delete-branch', 'git:commit', 'git:generate-commit-message', 'git:log',
     'git:list-changed-files', 'git:diff-file', 'git:discard-file', 'git:unpushed-commits',
     'files:list',
     'jobs:create', 'jobs:cancel', 'jobs:delete', 'jobs:retry', 'jobs:respond', 'jobs:steer',
@@ -1356,6 +1356,12 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     const project = getProjects().find(p => p.id === projectId);
     if (!project) return { success: false, error: 'Project not found' };
     return gitPush(project.path, branch);
+  });
+
+  ipcMain.handle('git:delete-branch', (_event, projectId: string, branch: string) => {
+    const project = getProjects().find(p => p.id === projectId);
+    if (!project) return { success: false, error: 'Project not found' };
+    return gitDeleteBranch(project.path, branch);
   });
 
   ipcMain.handle('git:commit', async (_event, projectId: string, message: string, branch?: string, files?: string[]) => {

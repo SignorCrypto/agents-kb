@@ -444,6 +444,7 @@ export function ProjectManager() {
   const [branchStatuses, setBranchStatuses] = useState<Map<string, BranchStatus[]>>(new Map());
   const [pushConfirm, setPushConfirm] = useState<{ projectId: string; branch: string; isUnpublished?: boolean } | null>(null);
   const [pushing, setPushing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [pushError, setPushError] = useState<string | null>(null);
   const [pushUnpushedCommits, setPushUnpushedCommits] = useState<GitCommit[]>([]);
   const [loadingPushCommits, setLoadingPushCommits] = useState(false);
@@ -526,6 +527,19 @@ export function ProjectManager() {
     setPushing(false);
     if (!result.success) {
       setPushError(result.error || 'Push failed');
+      return;
+    }
+    setPushConfirm(null);
+    await refreshProjectBranchStatus(projectId);
+  };
+
+  const handleDeleteBranch = async (projectId: string, branch: string) => {
+    setDeleting(true);
+    setPushError(null);
+    const result = await api.gitDeleteBranch(projectId, branch);
+    setDeleting(false);
+    if (!result.success) {
+      setPushError(result.error || 'Delete failed');
       return;
     }
     setPushConfirm(null);
@@ -811,9 +825,6 @@ export function ProjectManager() {
                           }`}
                       >
                         <span className="truncate max-w-[72px]">{b.name}</span>
-                        {isUnpublished && (
-                          <span className="text-[8px] uppercase tracking-wide opacity-70 ml-0.5">new</span>
-                        )}
                         {b.dirtyFiles > 0 && (
                           <span className="tabular-nums opacity-80 ml-px">±{b.dirtyFiles}</span>
                         )}
@@ -854,7 +865,7 @@ export function ProjectManager() {
       {pushConfirm && createPortal(
         <div
           className="fixed inset-0 z-[110] flex items-center justify-center"
-          onClick={() => { if (!pushing) { setPushConfirm(null); setPushError(null); } }}
+          onClick={() => { if (!pushing && !deleting) { setPushConfirm(null); setPushError(null); } }}
         >
           <div className="absolute inset-0 bg-surface-overlay/40 backdrop-blur-[2px]" />
           <div
@@ -905,21 +916,37 @@ export function ProjectManager() {
                 {pushError}
               </p>
             )}
-            <div className="flex items-center justify-end gap-2 mt-4">
-              <button
-                onClick={() => { setPushConfirm(null); setPushError(null); }}
-                disabled={pushing}
-                className="px-3 py-1.5 text-xs rounded border border-chrome hover:bg-surface-tertiary transition-colors disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => handlePush(pushConfirm.projectId, pushConfirm.branch)}
-                disabled={pushing}
-                className="px-3 py-1.5 text-xs font-medium rounded bg-btn-primary text-content-inverted hover:bg-btn-primary-hover transition-colors disabled:opacity-50"
-              >
-                {pushing ? (pushConfirm.isUnpublished ? 'Publishing...' : 'Pushing...') : (pushConfirm.isUnpublished ? 'Publish' : 'Push')}
-              </button>
+            <div className="flex items-center justify-between mt-4">
+              <div>
+                {pushConfirm.isUnpublished && (
+                  <button
+                    onClick={() => handleDeleteBranch(pushConfirm.projectId, pushConfirm.branch)}
+                    disabled={pushing || deleting}
+                    className="px-3 py-1 text-xs font-medium rounded bg-status-error/10 text-status-error hover:bg-status-error/20 transition-colors disabled:opacity-50"
+                  >
+                    {deleting ? 'Deleting...' : 'Delete branch'}
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => { setPushConfirm(null); setPushError(null); }}
+                  disabled={pushing || deleting}
+                  className="px-3 py-1 text-xs rounded text-content-tertiary hover:bg-surface-tertiary/70 transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handlePush(pushConfirm.projectId, pushConfirm.branch)}
+                  disabled={pushing || deleting}
+                  className="px-3 py-1 text-xs font-medium rounded bg-column-development/15 text-column-development hover:bg-column-development/25 transition-colors disabled:opacity-50"
+                >
+                  {pushing
+                    ? (pushConfirm.isUnpublished ? 'Publishing...' : 'Pushing...')
+                    : (pushConfirm.isUnpublished ? 'Publish' : 'Push')
+                  }
+                </button>
+              </div>
             </div>
           </div>
         </div>,

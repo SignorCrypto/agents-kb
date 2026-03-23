@@ -215,7 +215,7 @@ export function CommitDialog({
                       <button
                         onClick={onClose}
                         disabled={state.commitLoading}
-                        className="px-3 py-1.5 text-xs rounded border border-chrome hover:bg-surface-tertiary transition-colors disabled:opacity-50"
+                        className="px-2.5 py-1.5 text-[11px] rounded text-content-tertiary hover:bg-surface-tertiary/70 transition-colors disabled:opacity-50"
                       >
                         Cancel
                       </button>
@@ -227,7 +227,7 @@ export function CommitDialog({
                           !state.commitMessage.trim() ||
                           state.stagedFiles.size === 0
                         }
-                        className="px-3 py-1.5 text-xs font-medium rounded bg-btn-primary text-content-inverted hover:bg-btn-primary-hover transition-colors disabled:opacity-50"
+                        className="px-3 py-1.5 text-[11px] font-medium rounded bg-semantic-warning/15 text-semantic-warning hover:bg-semantic-warning/25 transition-colors disabled:opacity-50"
                       >
                         {state.commitLoading ? 'Committing...' : 'Commit'}
                       </button>
@@ -311,14 +311,14 @@ export function CommitDialog({
               <button
                 onClick={onClose}
                 disabled={state.pushing}
-                className="px-3 py-1.5 text-xs rounded border border-chrome hover:bg-surface-tertiary transition-colors disabled:opacity-50"
+                className="px-3 py-1.5 text-xs rounded text-content-tertiary hover:bg-surface-tertiary/70 transition-colors disabled:opacity-50"
               >
                 Later
               </button>
               <button
                 onClick={state.push}
                 disabled={state.pushing}
-                className="px-3 py-1.5 text-xs font-medium rounded bg-btn-primary text-content-inverted hover:bg-btn-primary-hover transition-colors disabled:opacity-50"
+                className="px-3 py-1.5 text-xs font-medium rounded bg-column-development/15 text-column-development hover:bg-column-development/25 transition-colors disabled:opacity-50"
               >
                 {state.pushing ? 'Pushing...' : 'Push'}
               </button>

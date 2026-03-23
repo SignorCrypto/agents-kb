@@ -257,6 +257,24 @@ export async function gitPush(projectPath: string, branch: string): Promise<{ su
   }
 }
 
+export async function gitDeleteBranch(
+  projectPath: string,
+  branch: string,
+): Promise<{ success: boolean; error?: string }> {
+  if (!(await isGitRepoRoot(projectPath))) return { success: false, error: 'Not a git repo' };
+
+  try {
+    const current = (await git(projectPath, 'rev-parse', '--abbrev-ref', 'HEAD')).trim();
+    if (current === branch) {
+      return { success: false, error: 'Cannot delete the currently checked-out branch' };
+    }
+    await git(projectPath, 'branch', '-d', branch);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 function parseRefs(refStr: string): GitRef[] {
   if (!refStr.trim()) return [];
   return refStr.split(',').map((r) => r.trim()).filter(Boolean).map((raw) => {
