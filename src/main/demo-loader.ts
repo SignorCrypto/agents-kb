@@ -40,23 +40,22 @@ interface BranchStatus {
   isCurrent: boolean;
   ahead: number;
   dirtyFiles: number;
+  hasUpstream: boolean;
 }
 
 const demoBranchStatuses: Record<string, BranchStatus[]> = {
   'demo-proj-agents-kb': [
-    { name: 'dev', isCurrent: true, ahead: 2, dirtyFiles: 4 },
-    { name: 'main', isCurrent: false, ahead: 0, dirtyFiles: 0 },
+    { name: 'dev', isCurrent: true, ahead: 2, dirtyFiles: 4, hasUpstream: true },
+    { name: 'feat/onboarding', isCurrent: false, ahead: 3, dirtyFiles: 0, hasUpstream: false },
   ],
   'demo-proj-billing-api': [
-    { name: 'main', isCurrent: true, ahead: 1, dirtyFiles: 3 },
-    { name: 'dev', isCurrent: false, ahead: 0, dirtyFiles: 0 },
+    { name: 'main', isCurrent: true, ahead: 1, dirtyFiles: 3, hasUpstream: true },
   ],
   'demo-proj-marketing-site': [
-    { name: 'dev', isCurrent: true, ahead: 0, dirtyFiles: 7 },
-    { name: 'main', isCurrent: false, ahead: 0, dirtyFiles: 0 },
+    { name: 'dev', isCurrent: true, ahead: 0, dirtyFiles: 7, hasUpstream: true },
   ],
   'demo-proj-ml-pipeline': [
-    { name: 'main', isCurrent: true, ahead: 0, dirtyFiles: 2 },
+    { name: 'main', isCurrent: true, ahead: 0, dirtyFiles: 2, hasUpstream: true },
   ],
 };
 

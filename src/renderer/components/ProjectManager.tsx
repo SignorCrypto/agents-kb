@@ -17,6 +17,7 @@ interface BranchStatus {
   isCurrent: boolean;
   ahead: number;
   dirtyFiles: number;
+  hasUpstream: boolean;
 }
 
 const BRANCH_STATUS_POLL_MS = 15000;
@@ -33,7 +34,8 @@ function areBranchStatusListsEqual(left: BranchStatus[] | undefined, right: Bran
       a.name !== b.name ||
       a.isCurrent !== b.isCurrent ||
       a.ahead !== b.ahead ||
-      a.dirtyFiles !== b.dirtyFiles
+      a.dirtyFiles !== b.dirtyFiles ||
+      a.hasUpstream !== b.hasUpstream
     ) {
       return false;
     }
@@ -440,7 +442,7 @@ export function ProjectManager() {
   const [detailProjectId, setDetailProjectId] = useState<string | null>(null);
   const [gitHistoryProjectId, setGitHistoryProjectId] = useState<string | null>(null);
   const [branchStatuses, setBranchStatuses] = useState<Map<string, BranchStatus[]>>(new Map());
-  const [pushConfirm, setPushConfirm] = useState<{ projectId: string; branch: string } | null>(null);
+  const [pushConfirm, setPushConfirm] = useState<{ projectId: string; branch: string; isUnpublished?: boolean } | null>(null);
   const [pushing, setPushing] = useState(false);
   const [pushError, setPushError] = useState<string | null>(null);
   const [pushUnpushedCommits, setPushUnpushedCommits] = useState<GitCommit[]>([]);
@@ -773,12 +775,14 @@ export function ProjectManager() {
               {branches.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-1 pl-[22px]">
                   {branches.map((b) => {
-                    const canPush = b.ahead > 0;
+                    const isUnpublished = !b.hasUpstream;
+                    const canPush = b.ahead > 0 || isUnpublished;
                     const isActionable = canPush || b.dirtyFiles > 0;
                     const chipTitle = [
                       b.name,
+                      isUnpublished ? 'unpublished branch — click to publish' : '',
                       b.dirtyFiles > 0 ? `${b.dirtyFiles} uncommitted file${b.dirtyFiles > 1 ? 's' : ''}` : '',
-                      canPush ? `${b.ahead} commit${b.ahead > 1 ? 's' : ''} to push — click to push` : '',
+                      !isUnpublished && b.ahead > 0 ? `${b.ahead} commit${b.ahead > 1 ? 's' : ''} to push — click to push` : '',
                     ].filter(Boolean).join(' · ');
 
                     return (
@@ -789,7 +793,7 @@ export function ProjectManager() {
                           if (b.dirtyFiles > 0) {
                             openCommitDialog(project.id, b.name);
                           } else if (canPush) {
-                            setPushConfirm({ projectId: project.id, branch: b.name });
+                            setPushConfirm({ projectId: project.id, branch: b.name, isUnpublished });
                             setPushUnpushedCommits([]);
                             setLoadingPushCommits(true);
                             api.gitUnpushedCommits(project.id, b.name)
@@ -807,10 +811,13 @@ export function ProjectManager() {
                           }`}
                       >
                         <span className="truncate max-w-[72px]">{b.name}</span>
+                        {isUnpublished && (
+                          <span className="text-[8px] uppercase tracking-wide opacity-70 ml-0.5">new</span>
+                        )}
                         {b.dirtyFiles > 0 && (
                           <span className="tabular-nums opacity-80 ml-px">±{b.dirtyFiles}</span>
                         )}
-                        {canPush && (
+                        {b.ahead > 0 && (
                           <span className="tabular-nums ml-px">{b.ahead}&#8593;</span>
                         )}
                       </button>
@@ -854,9 +861,14 @@ export function ProjectManager() {
             className="relative rounded-xl border border-chrome/50 bg-surface-elevated shadow-2xl p-4 w-[560px] max-w-[90vw] animate-[dialogIn_150ms_ease-out]"
             onClick={(e) => e.stopPropagation()}
           >
-            <p className="text-sm text-content-primary font-medium">Push to remote?</p>
+            <p className="text-sm text-content-primary font-medium">
+              {pushConfirm.isUnpublished ? 'Publish branch?' : 'Push to remote?'}
+            </p>
             <p className="text-xs text-content-secondary mt-1.5">
-              Push branch <span className="font-mono font-medium text-content-primary">{pushConfirm.branch}</span> to origin?
+              {pushConfirm.isUnpublished
+                ? <>Publish <span className="font-mono font-medium text-content-primary">{pushConfirm.branch}</span> to origin? This will create a new remote branch.</>
+                : <>Push branch <span className="font-mono font-medium text-content-primary">{pushConfirm.branch}</span> to origin?</>
+              }
             </p>
 
             {/* Unpushed commits */}
@@ -906,7 +918,7 @@ export function ProjectManager() {
                 disabled={pushing}
                 className="px-3 py-1.5 text-xs font-medium rounded bg-btn-primary text-content-inverted hover:bg-btn-primary-hover transition-colors disabled:opacity-50"
               >
-                {pushing ? 'Pushing...' : 'Push'}
+                {pushing ? (pushConfirm.isUnpublished ? 'Publishing...' : 'Pushing...') : (pushConfirm.isUnpublished ? 'Publish' : 'Push')}
               </button>
             </div>
           </div>

@@ -162,8 +162,23 @@ export async function gitCommit(projectPath: string, message: string): Promise<s
 export interface BranchStatus {
   name: string;
   isCurrent: boolean;
-  ahead: number;       // commits ahead of remote
+  ahead: number;       // commits ahead of remote (or default branch if unpublished)
   dirtyFiles: number;  // uncommitted changed files (current branch only)
+  hasUpstream: boolean; // false when branch has never been pushed
+}
+
+async function resolveDefaultBranch(projectPath: string): Promise<string> {
+  try {
+    const ref = await git(projectPath, 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD');
+    return ref.replace('origin/', '').trim();
+  } catch {
+    try {
+      await git(projectPath, 'rev-parse', '--verify', 'main');
+      return 'main';
+    } catch {
+      return 'master';
+    }
+  }
 }
 
 export async function getBranchesStatus(projectPath: string): Promise<BranchStatus[] | null> {
@@ -172,6 +187,7 @@ export async function getBranchesStatus(projectPath: string): Promise<BranchStat
   try {
     const branchOutput = await git(projectPath, 'branch', '--list', '--no-color');
     const current = await git(projectPath, 'rev-parse', '--abbrev-ref', 'HEAD');
+    const defaultBranch = await resolveDefaultBranch(projectPath);
 
     const branches = branchOutput
       .split('\n')
@@ -183,9 +199,11 @@ export async function getBranchesStatus(projectPath: string): Promise<BranchStat
     for (const name of branches) {
       const isCurrent = name === current;
 
-      // Count commits ahead of remote tracking branch
+      // Detect upstream and count commits ahead
       let ahead = 0;
+      let hasUpstream = true;
       try {
+        await git(projectPath, 'rev-parse', '--verify', '--quiet', `${name}@{upstream}`);
         const aheadStr = await git(
           projectPath,
           'rev-list',
@@ -194,7 +212,16 @@ export async function getBranchesStatus(projectPath: string): Promise<BranchStat
         );
         ahead = parseInt(aheadStr, 10) || 0;
       } catch {
-        // No upstream configured — skip
+        // No upstream configured — branch is unpublished
+        hasUpstream = false;
+        if (name !== defaultBranch) {
+          try {
+            const aheadStr = await git(projectPath, 'rev-list', '--count', `${defaultBranch}..${name}`);
+            ahead = parseInt(aheadStr, 10) || 0;
+          } catch {
+            ahead = 0;
+          }
+        }
       }
 
       // Count dirty files only for current branch
@@ -208,8 +235,8 @@ export async function getBranchesStatus(projectPath: string): Promise<BranchStat
         }
       }
 
-      if (ahead > 0 || dirtyFiles > 0) {
-        results.push({ name, isCurrent, ahead, dirtyFiles });
+      if (ahead > 0 || dirtyFiles > 0 || !hasUpstream) {
+        results.push({ name, isCurrent, ahead, dirtyFiles, hasUpstream });
       }
     }
 
@@ -223,7 +250,7 @@ export async function gitPush(projectPath: string, branch: string): Promise<{ su
   if (!(await isGitRepoRoot(projectPath))) return { success: false, error: 'Not a git repo' };
 
   try {
-    await git(projectPath, 'push', 'origin', branch);
+    await git(projectPath, 'push', '-u', 'origin', branch);
     return { success: true };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };
@@ -254,7 +281,16 @@ export async function getUnpushedCommits(projectPath: string, branch: string): P
 
   try {
     const format = '%h%x00%H%x00%P%x00%an%x00%ae%x00%aI%x00%s%x00%D';
-    const output = await git(projectPath, 'log', `${branch}@{upstream}..${branch}`, `--format=${format}`);
+    let rangeSpec: string;
+    try {
+      await git(projectPath, 'rev-parse', '--verify', '--quiet', `${branch}@{upstream}`);
+      rangeSpec = `${branch}@{upstream}..${branch}`;
+    } catch {
+      // No upstream — compare against default branch
+      const defaultBranch = await resolveDefaultBranch(projectPath);
+      rangeSpec = `${defaultBranch}..${branch}`;
+    }
+    const output = await git(projectPath, 'log', rangeSpec, `--format=${format}`);
     const lines = output.split('\n').filter((l) => l.includes('\0'));
 
     const fullToAbbrev = new Map<string, string>();
