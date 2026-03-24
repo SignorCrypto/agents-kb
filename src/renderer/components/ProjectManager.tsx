@@ -5,11 +5,10 @@ import { useElectronAPI } from '../hooks/useElectronAPI';
 import { ClaudeMdEditor } from './ClaudeMdEditor';
 import { Kbd } from './Kbd';
 import { LightbulbIcon, SettingsIcon, XIcon } from './Icons';
-import type { KanbanColumn, GitCommit, Project } from '../types/index';
+import type { KanbanColumn, Project } from '../types/index';
 import { PROJECT_COLORS, getProjectColor } from '../types/index';
 import { GitHistoryPanel } from '../features/git-history';
-import GitCommitRow from '../features/git-history/GitCommitRow';
-import { CommitDialog } from '../features/git-commit';
+import { GitPanel } from '../features/git-panel';
 import { NotificationBadge } from './NotificationBadge';
 
 interface BranchStatus {
@@ -442,13 +441,12 @@ export function ProjectManager() {
   const [detailProjectId, setDetailProjectId] = useState<string | null>(null);
   const [gitHistoryProjectId, setGitHistoryProjectId] = useState<string | null>(null);
   const [branchStatuses, setBranchStatuses] = useState<Map<string, BranchStatus[]>>(new Map());
-  const [pushConfirm, setPushConfirm] = useState<{ projectId: string; branch: string; isUnpublished?: boolean } | null>(null);
-  const [pushing, setPushing] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [pushError, setPushError] = useState<string | null>(null);
-  const [pushUnpushedCommits, setPushUnpushedCommits] = useState<GitCommit[]>([]);
-  const [loadingPushCommits, setLoadingPushCommits] = useState(false);
-  const [commitDialog, setCommitDialog] = useState<{ projectId: string; branch: string } | null>(null);
+  const [gitPanel, setGitPanel] = useState<{
+    projectId: string;
+    branch: string;
+    isDirty: boolean;
+    hasUpstream: boolean;
+  } | null>(null);
   const previousStatusesRef = useRef<Map<string, string>>(new Map());
 
   const gitProjects = useMemo(
@@ -520,53 +518,29 @@ export function ProjectManager() {
     }
   }, [jobs, refreshProjectBranchStatus]);
 
-  const handlePush = async (projectId: string, branch: string) => {
-    setPushing(true);
-    setPushError(null);
-    const result = await api.gitPush(projectId, branch);
-    setPushing(false);
-    if (!result.success) {
-      setPushError(result.error || 'Push failed');
-      return;
-    }
-    setPushConfirm(null);
-    await refreshProjectBranchStatus(projectId);
-  };
-
-  const handleDeleteBranch = async (projectId: string, branch: string) => {
-    setDeleting(true);
-    setPushError(null);
-    const result = await api.gitDeleteBranch(projectId, branch);
-    setDeleting(false);
-    if (!result.success) {
-      setPushError(result.error || 'Delete failed');
-      return;
-    }
-    setPushConfirm(null);
-    await refreshProjectBranchStatus(projectId);
-  };
-
-  const openCommitDialog = (projectId: string, branch: string) => {
-    setCommitDialog({ projectId, branch });
-  };
-
-  const handleCommitDialogCommitted = useCallback(
+  const handleGitPanelCommitted = useCallback(
     (result: { deletedJobIds?: string[]; warning?: string }) => {
       for (const jobId of result.deletedJobIds || []) {
         removeJob(jobId);
       }
-      if (commitDialog) {
-        refreshProjectBranchStatus(commitDialog.projectId);
+      if (gitPanel) {
+        refreshProjectBranchStatus(gitPanel.projectId);
       }
     },
-    [commitDialog, removeJob, refreshProjectBranchStatus],
+    [gitPanel, removeJob, refreshProjectBranchStatus],
   );
 
-  const handleCommitDialogPushed = useCallback(() => {
-    if (commitDialog) {
-      refreshProjectBranchStatus(commitDialog.projectId);
+  const handleGitPanelPushed = useCallback(() => {
+    if (gitPanel) {
+      refreshProjectBranchStatus(gitPanel.projectId);
     }
-  }, [commitDialog, refreshProjectBranchStatus]);
+  }, [gitPanel, refreshProjectBranchStatus]);
+
+  const handleGitPanelBranchDeleted = useCallback(() => {
+    if (gitPanel) {
+      refreshProjectBranchStatus(gitPanel.projectId);
+    }
+  }, [gitPanel, refreshProjectBranchStatus]);
 
   // Compute per-project job counts by column + notification flag
   const projectStats = useMemo(() => {
@@ -804,16 +778,13 @@ export function ProjectManager() {
                         key={b.name}
                         onClick={(e: React.MouseEvent) => {
                           e.stopPropagation();
-                          if (b.dirtyFiles > 0) {
-                            openCommitDialog(project.id, b.name);
-                          } else if (canPush) {
-                            setPushConfirm({ projectId: project.id, branch: b.name, isUnpublished });
-                            setPushUnpushedCommits([]);
-                            setLoadingPushCommits(true);
-                            api.gitUnpushedCommits(project.id, b.name)
-                              .then((commits) => setPushUnpushedCommits(commits))
-                              .catch(() => setPushUnpushedCommits([]))
-                              .finally(() => setLoadingPushCommits(false));
+                          if (isActionable) {
+                            setGitPanel({
+                              projectId: project.id,
+                              branch: b.name,
+                              isDirty: b.dirtyFiles > 0,
+                              hasUpstream: b.hasUpstream,
+                            });
                           }
                         }}
                         title={chipTitle}
@@ -861,111 +832,22 @@ export function ProjectManager() {
         </button>
       </div>
 
-      {/* Push confirmation dialog */}
-      {pushConfirm && createPortal(
-        <div
-          className="fixed inset-0 z-[110] flex items-center justify-center"
-          onClick={() => { if (!pushing && !deleting) { setPushConfirm(null); setPushError(null); } }}
-        >
-          <div className="absolute inset-0 bg-surface-overlay/40 backdrop-blur-[2px]" />
-          <div
-            className="relative rounded-xl border border-chrome/50 bg-surface-elevated shadow-2xl p-4 w-[560px] max-w-[90vw] animate-[dialogIn_150ms_ease-out]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <p className="text-sm text-content-primary font-medium">
-              {pushConfirm.isUnpublished ? 'Publish branch?' : 'Push to remote?'}
-            </p>
-            <p className="text-xs text-content-secondary mt-1.5">
-              {pushConfirm.isUnpublished
-                ? <>Publish <span className="font-mono font-medium text-content-primary">{pushConfirm.branch}</span> to origin? This will create a new remote branch.</>
-                : <>Push branch <span className="font-mono font-medium text-content-primary">{pushConfirm.branch}</span> to origin?</>
-              }
-            </p>
-
-            {/* Unpushed commits */}
-            {loadingPushCommits ? (
-              <div className="mt-3 rounded-lg border border-chrome-subtle/50 bg-surface-tertiary/20 p-3">
-                <div className="flex items-center gap-2 text-xs text-content-tertiary">
-                  <svg className="animate-spin h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
-                    <path d="M12 2a10 10 0 019.5 7" strokeLinecap="round" />
-                  </svg>
-                  <span className="text-[11px]">Loading commits...</span>
-                </div>
-              </div>
-            ) : pushUnpushedCommits.length > 0 ? (
-              <div className="mt-3">
-                <div className="flex items-center gap-1.5 mb-1.5">
-                  <span className="text-[10px] font-medium uppercase tracking-wider text-content-tertiary">
-                    Commits
-                  </span>
-                  <span className="text-[10px] tabular-nums text-content-tertiary">
-                    ({pushUnpushedCommits.length})
-                  </span>
-                </div>
-                <div className="rounded-lg border border-chrome-subtle/50 bg-surface-tertiary/10 overflow-hidden max-h-[200px] overflow-y-auto">
-                  {pushUnpushedCommits.map((commit) => (
-                    <GitCommitRow key={commit.fullHash} commit={commit} />
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-            {pushError && (
-              <p className="text-xs text-status-error mt-2 bg-status-error/10 rounded px-2 py-1.5 break-words">
-                {pushError}
-              </p>
-            )}
-            <div className="flex items-center justify-between mt-4">
-              <div>
-                {pushConfirm.isUnpublished && (
-                  <button
-                    onClick={() => handleDeleteBranch(pushConfirm.projectId, pushConfirm.branch)}
-                    disabled={pushing || deleting}
-                    className="px-3 py-1 text-xs font-medium rounded bg-status-error/10 text-status-error hover:bg-status-error/20 transition-colors disabled:opacity-50"
-                  >
-                    {deleting ? 'Deleting...' : 'Delete branch'}
-                  </button>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => { setPushConfirm(null); setPushError(null); }}
-                  disabled={pushing || deleting}
-                  className="px-3 py-1 text-xs rounded text-content-tertiary hover:bg-surface-tertiary/70 transition-colors disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => handlePush(pushConfirm.projectId, pushConfirm.branch)}
-                  disabled={pushing || deleting}
-                  className="px-3 py-1 text-xs font-medium rounded bg-column-development/15 text-column-development hover:bg-column-development/25 transition-colors disabled:opacity-50"
-                >
-                  {pushing
-                    ? (pushConfirm.isUnpublished ? 'Publishing...' : 'Pushing...')
-                    : (pushConfirm.isUnpublished ? 'Publish' : 'Push')
-                  }
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>,
-        document.body,
-      )}
-
-      {/* Commit dialog */}
-      {commitDialog && (() => {
-        const project = projects.find(p => p.id === commitDialog.projectId);
+      {/* Git panel (unified commit/push/publish dialog) */}
+      {gitPanel && (() => {
+        const project = projects.find(p => p.id === gitPanel.projectId);
         if (!project) return null;
         return (
-          <CommitDialog
-            projectId={commitDialog.projectId}
-            branch={commitDialog.branch}
+          <GitPanel
+            projectId={gitPanel.projectId}
+            branch={gitPanel.branch}
             projectName={project.name}
             projectColor={getProjectColor(project.color)}
-            onClose={() => setCommitDialog(null)}
-            onCommitted={handleCommitDialogCommitted}
-            onPushed={handleCommitDialogPushed}
+            isDirty={gitPanel.isDirty}
+            hasUpstream={gitPanel.hasUpstream}
+            onClose={() => setGitPanel(null)}
+            onCommitted={handleGitPanelCommitted}
+            onPushed={handleGitPanelPushed}
+            onBranchDeleted={handleGitPanelBranchDeleted}
           />
         );
       })()}

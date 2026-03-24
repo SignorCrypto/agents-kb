@@ -1,36 +1,41 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { useElectronAPI } from "../../hooks/useElectronAPI";
-import { useKanbanStore } from "../../hooks/useKanbanStore";
-import type { ChangedFile, GitCommit, Job } from "../../types/index";
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useElectronAPI } from '../../hooks/useElectronAPI';
+import { useKanbanStore } from '../../hooks/useKanbanStore';
+import type { ChangedFile, GitCommit, Job } from '../../types/index';
 
-export interface CommitDialogState {
-  // File list
+export type GitPanelPhase = 'compose' | 'push' | 'publish';
+
+export interface GitPanelState {
+  phase: GitPanelPhase;
+  // Compose state
   changedFiles: ChangedFile[];
   loadingFiles: boolean;
   stagedFiles: Set<string>;
-  // All file diffs
   selectedFile: string | null;
   allDiffs: Map<string, string>;
   loadingDiffs: boolean;
-  // Commit message
   commitMessage: string;
   generatingMessage: boolean;
-  // Commit flow
   commitLoading: boolean;
   commitError: string | null;
-  commitPhase: "compose" | "push";
   clearedCompletedCount: number;
-  // Push
+  // Push/publish state
   pushing: boolean;
   unpushedCommits: GitCommit[];
   loadingUnpushed: boolean;
+  // Delete branch
+  deleting: boolean;
   // Job context
   jobAttributions: Map<string, Job[]>;
   runningJobs: Job[];
   runningJobFiles: Set<string>;
+  // Whether we transitioned from compose → push (to show "Committed" header)
+  didCommit: boolean;
+  // Whether this is an unpublished branch
+  isUnpublished: boolean;
 }
 
-export interface CommitDialogActions {
+export interface GitPanelActions {
   toggleFile: (filePath: string) => void;
   toggleAll: () => void;
   selectFile: (filePath: string | null) => void;
@@ -39,23 +44,34 @@ export interface CommitDialogActions {
   discardFile: (filePath: string, isUntracked: boolean) => Promise<void>;
   commit: () => Promise<void>;
   push: () => Promise<void>;
+  deleteBranch: () => Promise<void>;
   refreshFiles: () => Promise<void>;
 }
 
-export function useCommitDialog(
+export function useGitPanel(
   projectId: string,
   branch: string,
+  isDirty: boolean,
+  hasUpstream: boolean,
   onClose: () => void,
   onCommitted?: (result: { deletedJobIds?: string[]; warning?: string }) => void,
   onPushed?: () => void,
-): CommitDialogState & CommitDialogActions {
+  onBranchDeleted?: () => void,
+): GitPanelState & GitPanelActions {
   const api = useElectronAPI();
   const jobs = useKanbanStore((s) => s.jobs);
   const settings = useKanbanStore((s) => s.settings);
 
+  // Compute initial phase
+  const initialPhase: GitPanelPhase = isDirty ? 'compose' : hasUpstream ? 'push' : 'publish';
+
+  // Phase state
+  const [phase, setPhase] = useState<GitPanelPhase>(initialPhase);
+  const [didCommit, setDidCommit] = useState(false);
+
   // File list state
   const [changedFiles, setChangedFiles] = useState<ChangedFile[]>([]);
-  const [loadingFiles, setLoadingFiles] = useState(true);
+  const [loadingFiles, setLoadingFiles] = useState(isDirty);
   const [stagedFiles, setStagedFiles] = useState<Set<string>>(new Set());
 
   // Diff state
@@ -64,30 +80,34 @@ export function useCommitDialog(
   const [loadingDiffs, setLoadingDiffs] = useState(false);
 
   // Commit state
-  const [commitMessage, setCommitMessage] = useState("");
+  const [commitMessage, setCommitMessage] = useState('');
   const [generatingMessage, setGeneratingMessage] = useState(false);
   const [commitLoading, setCommitLoading] = useState(false);
   const [commitError, setCommitError] = useState<string | null>(null);
-  const [commitPhase, setCommitPhase] = useState<"compose" | "push">("compose");
   const [clearedCompletedCount, setClearedCompletedCount] = useState(0);
+
+  // Push state
   const [pushing, setPushing] = useState(false);
   const [unpushedCommits, setUnpushedCommits] = useState<GitCommit[]>([]);
   const [loadingUnpushed, setLoadingUnpushed] = useState(false);
 
-  // Discard confirmation tracking
-  const [discardingFile, setDiscardingFile] = useState<string | null>(null);
+  // Delete state
+  const [deleting, setDeleting] = useState(false);
 
   // Ref to avoid stale closures
   const changedFilesRef = useRef(changedFiles);
   changedFilesRef.current = changedFiles;
 
-  // Job attribution: which jobs edited which files
+  // Job attribution
   const projectBranchJobs = useMemo(
     () => jobs.filter((j) => j.projectId === projectId && j.branch === branch),
     [jobs, projectId, branch],
   );
 
-  const runningJobs = useMemo(() => projectBranchJobs.filter((j) => j.status === "running"), [projectBranchJobs]);
+  const runningJobs = useMemo(
+    () => projectBranchJobs.filter((j) => j.status === 'running'),
+    [projectBranchJobs],
+  );
 
   const runningJobFiles = useMemo(() => {
     const files = new Set<string>();
@@ -112,7 +132,7 @@ export function useCommitDialog(
     return map;
   }, [projectBranchJobs]);
 
-  // Track whether this is the initial load (to auto-select first file)
+  // Track initial load for auto-selecting first file
   const initialLoadRef = useRef(true);
 
   // Fetch changed files
@@ -122,7 +142,6 @@ export function useCommitDialog(
       const files = await api.gitListChangedFiles(projectId);
       setChangedFiles(files);
       setStagedFiles(new Set(files.map((f) => f.path)));
-      // Auto-select first file on initial load
       if (initialLoadRef.current && files.length > 0) {
         initialLoadRef.current = false;
         setSelectedFile(files[0].path);
@@ -134,8 +153,23 @@ export function useCommitDialog(
     }
   }, [api, projectId]);
 
-  // Initial load: fetch files + generate message
+  // Load unpushed commits
+  const loadUnpushedCommits = useCallback(async () => {
+    setLoadingUnpushed(true);
+    try {
+      const commits = await api.gitUnpushedCommits(projectId, branch);
+      setUnpushedCommits(commits);
+    } catch {
+      setUnpushedCommits([]);
+    } finally {
+      setLoadingUnpushed(false);
+    }
+  }, [api, projectId, branch]);
+
+  // Compose phase: fetch files + generate message
   useEffect(() => {
+    if (phase !== 'compose') return;
+
     refreshFiles();
 
     setGeneratingMessage(true);
@@ -144,16 +178,22 @@ export function useCommitDialog(
       .then((msg) => setCommitMessage(msg))
       .catch(() => {})
       .finally(() => setGeneratingMessage(false));
-  }, [api, projectId, branch, refreshFiles]);
+  }, [api, projectId, branch, refreshFiles, phase]);
 
-  // Auto-refresh when running jobs are active
+  // Push/publish phase: load unpushed commits
   useEffect(() => {
-    if (runningJobs.length === 0) return;
+    if (phase === 'compose') return;
+    loadUnpushedCommits();
+  }, [phase, loadUnpushedCommits]);
+
+  // Auto-refresh when running jobs are active (compose phase only)
+  useEffect(() => {
+    if (phase !== 'compose' || runningJobs.length === 0) return;
     const interval = setInterval(() => refreshFiles(), 5000);
     return () => clearInterval(interval);
-  }, [runningJobs.length, refreshFiles]);
+  }, [phase, runningJobs.length, refreshFiles]);
 
-  // Fetch diffs for all changed files in parallel
+  // Fetch diffs: initial batch in parallel, then remaining sequentially
   useEffect(() => {
     if (changedFiles.length === 0) {
       setAllDiffs(new Map());
@@ -164,10 +204,11 @@ export function useCommitDialog(
     setLoadingDiffs(true);
     setAllDiffs(new Map());
 
-    // Fetch each file's diff and update state progressively
-    const promises = changedFiles.map((file) =>
+    const INITIAL_BATCH = 3;
+
+    const fetchDiff = (file: ChangedFile) =>
       api
-        .gitDiffFile(projectId, file.path, file.status === "untracked")
+        .gitDiffFile(projectId, file.path, file.status === 'untracked')
         .then((diff) => {
           if (!cancelled) {
             setAllDiffs((prev) => {
@@ -177,14 +218,22 @@ export function useCommitDialog(
             });
           }
         })
-        .catch(() => {
-          // Skip files that fail to load diff
-        }),
-    );
+        .catch(() => {});
 
-    Promise.allSettled(promises).then(() => {
+    (async () => {
+      // Phase 1: load initial batch in parallel to fill the viewport fast
+      const initialFiles = changedFiles.slice(0, INITIAL_BATCH);
+      await Promise.allSettled(initialFiles.map(fetchDiff));
+
+      // Phase 2: load remaining files sequentially (top-to-bottom, fewer re-renders)
+      const remainingFiles = changedFiles.slice(INITIAL_BATCH);
+      for (const file of remainingFiles) {
+        if (cancelled) break;
+        await fetchDiff(file);
+      }
+
       if (!cancelled) setLoadingDiffs(false);
-    });
+    })();
 
     return () => {
       cancelled = true;
@@ -226,27 +275,21 @@ export function useCommitDialog(
 
   const discardFile = useCallback(
     async (filePath: string, isUntracked: boolean) => {
-      setDiscardingFile(filePath);
       try {
         const result = await api.gitDiscardFile(projectId, filePath, isUntracked);
         if (!result.success) {
           setCommitError(`Failed to discard ${filePath}: ${result.error}`);
           return;
         }
-        // If this file was selected, deselect it
         setSelectedFile((prev) => (prev === filePath ? null : prev));
-        // Remove from diffs map
         setAllDiffs((prev) => {
           const next = new Map(prev);
           next.delete(filePath);
           return next;
         });
-        // Refresh file list
         await refreshFiles();
-      } catch (err) {
+      } catch {
         setCommitError(`Failed to discard ${filePath}`);
-      } finally {
-        setDiscardingFile(null);
       }
     },
     [api, projectId, refreshFiles],
@@ -261,7 +304,7 @@ export function useCommitDialog(
     const result = await api.gitCommit(projectId, commitMessage.trim(), branch, files);
 
     if (!result.success) {
-      setCommitError(result.error || "Commit failed");
+      setCommitError(result.error || 'Commit failed');
       setCommitLoading(false);
       return;
     }
@@ -276,13 +319,8 @@ export function useCommitDialog(
     const updated = await api.gitBranchesStatus(projectId);
     const branchAfter = updated?.find((b) => b.name === branch);
     if (branchAfter && branchAfter.ahead > 0) {
-      setCommitPhase("push");
-      setLoadingUnpushed(true);
-      api
-        .gitUnpushedCommits(projectId, branch)
-        .then((commits) => setUnpushedCommits(commits))
-        .catch(() => setUnpushedCommits([]))
-        .finally(() => setLoadingUnpushed(false));
+      setDidCommit(true);
+      setPhase(branchAfter.hasUpstream ? 'push' : 'publish');
     } else {
       if (result.warning) {
         // Stay open to show warning
@@ -298,14 +336,28 @@ export function useCommitDialog(
     const result = await api.gitPush(projectId, branch);
     setPushing(false);
     if (!result.success) {
-      setCommitError(result.error || "Push failed");
+      setCommitError(result.error || 'Push failed');
       return;
     }
     onPushed?.();
     onClose();
   }, [api, projectId, branch, onClose, onPushed]);
 
+  const deleteBranch = useCallback(async () => {
+    setDeleting(true);
+    setCommitError(null);
+    const result = await api.gitDeleteBranch(projectId, branch);
+    setDeleting(false);
+    if (!result.success) {
+      setCommitError(result.error || 'Delete failed');
+      return;
+    }
+    onBranchDeleted?.();
+    onClose();
+  }, [api, projectId, branch, onClose, onBranchDeleted]);
+
   return {
+    phase,
     changedFiles,
     loadingFiles,
     stagedFiles,
@@ -316,14 +368,16 @@ export function useCommitDialog(
     generatingMessage,
     commitLoading,
     commitError,
-    commitPhase,
     clearedCompletedCount,
     pushing,
     unpushedCommits,
     loadingUnpushed,
+    deleting,
     jobAttributions,
     runningJobs,
     runningJobFiles,
+    didCommit,
+    isUnpublished: !hasUpstream,
     toggleFile,
     toggleAll,
     selectFile,
@@ -332,6 +386,7 @@ export function useCommitDialog(
     discardFile,
     commit,
     push,
+    deleteBranch,
     refreshFiles,
   };
 }
