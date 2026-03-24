@@ -1,4 +1,4 @@
-import type { GitCommit } from '../../types/index';
+import type { GitCommit } from "../../types/index";
 
 export interface GraphNode {
   commit: GitCommit;
@@ -18,7 +18,7 @@ export interface GraphEdge {
 export interface RowVertical {
   rail: number;
   color: string;
-  top: boolean;   // line enters from top of row
+  top: boolean; // line enters from top of row
   bottom: boolean; // line exits to bottom of row
 }
 
@@ -45,16 +45,19 @@ export interface GraphLayout {
   rowGraphData: RowGraphData[];
 }
 
-// Colors that work well on both light and dark backgrounds
+// ── RAIL COLOR PALETTES ─────────────────────────────────────────────────
+// competing with semantic app colors (blue, emerald, amber, etc.)
+
+// — Warm stone neutrals —
 const RAIL_COLORS = [
-  '#3b82f6', // blue
-  '#ef4444', // red
-  '#10b981', // emerald
-  '#f59e0b', // amber
-  '#8b5cf6', // violet
-  '#ec4899', // pink
-  '#06b6d4', // cyan
-  '#f97316', // orange
+  "#78716c", // stone-500
+  "#a8a29e", // stone-400
+  "#57534e", // stone-600
+  "#d6d3d1", // stone-300
+  "#44403c", // stone-700
+  "#c8c2bc", // ~stone-350 (custom midpoint)
+  "#6b6560", // ~stone-550 (custom midpoint)
+  "#92857a", // ~stone-450 (custom midpoint)
 ];
 
 function getRailColor(rail: number): string {
