@@ -108,14 +108,14 @@ export function CommitControls({
           <button
             onClick={onClose}
             disabled={commitLoading}
-            className="px-2.5 py-1.5 text-[11px] rounded text-content-tertiary hover:bg-surface-tertiary/70 transition-colors disabled:opacity-50"
+            className="px-3 py-1.5 text-xs rounded border border-chrome text-content-tertiary hover:bg-surface-tertiary/70 transition-colors disabled:opacity-50"
           >
             Cancel
           </button>
           <button
             onClick={onCommit}
             disabled={commitLoading || generatingMessage || !commitMessage.trim() || stagedCount === 0}
-            className="px-3 py-1.5 text-[11px] font-medium rounded bg-semantic-warning/15 text-semantic-warning hover:bg-semantic-warning/25 transition-colors disabled:opacity-50"
+            className="px-3 py-1.5 text-xs font-medium rounded bg-btn-primary text-content-inverted hover:bg-btn-primary-hover transition-colors disabled:opacity-50"
           >
             {commitLoading ? 'Committing...' : 'Commit'}
           </button>

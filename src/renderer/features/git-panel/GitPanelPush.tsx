@@ -68,14 +68,14 @@ export function GitPanelPush({ state, branch, onClose }: GitPanelPushProps) {
               <button
                 onClick={onClose}
                 disabled={isBusy}
-                className="px-3 py-1.5 text-xs rounded text-content-tertiary hover:bg-surface-tertiary/70 transition-colors disabled:opacity-50"
+                className="px-3 py-1.5 text-xs rounded border border-chrome text-content-tertiary hover:bg-surface-tertiary/70 transition-colors disabled:opacity-50"
               >
                 {state.didCommit ? 'Later' : 'Cancel'}
               </button>
               <button
                 onClick={state.push}
                 disabled={isBusy}
-                className="px-3 py-1.5 text-xs font-medium rounded bg-column-development/15 text-column-development hover:bg-column-development/25 transition-colors disabled:opacity-50"
+                className="px-3 py-1.5 text-xs font-medium rounded bg-btn-primary text-content-inverted hover:bg-btn-primary-hover transition-colors disabled:opacity-50"
               >
                 {state.pushing
                   ? isPublish
