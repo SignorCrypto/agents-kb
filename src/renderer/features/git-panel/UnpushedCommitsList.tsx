@@ -1,12 +1,27 @@
+import { useState } from 'react';
 import type { GitCommit } from '../../types/index';
 import GitCommitRow from '../git-history/GitCommitRow';
+import { CommitDetailView } from './CommitDetailView';
 
 interface UnpushedCommitsListProps {
   commits: GitCommit[];
   loading: boolean;
+  onDetailToggle?: (viewing: boolean) => void;
 }
 
-export function UnpushedCommitsList({ commits, loading }: UnpushedCommitsListProps) {
+export function UnpushedCommitsList({ commits, loading, onDetailToggle }: UnpushedCommitsListProps) {
+  const [selectedCommit, setSelectedCommit] = useState<GitCommit | null>(null);
+
+  const handleCommitClick = (commit: GitCommit) => {
+    setSelectedCommit(commit);
+    onDetailToggle?.(true);
+  };
+
+  const handleBack = () => {
+    setSelectedCommit(null);
+    onDetailToggle?.(false);
+  };
+
   if (loading) {
     return (
       <div className="mt-3 rounded-lg border border-chrome-subtle/50 bg-surface-tertiary/20 p-3">
@@ -36,6 +51,10 @@ export function UnpushedCommitsList({ commits, loading }: UnpushedCommitsListPro
 
   if (commits.length === 0) return null;
 
+  if (selectedCommit) {
+    return <CommitDetailView commit={selectedCommit} onBack={handleBack} />;
+  }
+
   return (
     <div className="mt-3">
       <div className="flex items-center gap-1.5 mb-1.5">
@@ -48,7 +67,7 @@ export function UnpushedCommitsList({ commits, loading }: UnpushedCommitsListPro
       </div>
       <div className="rounded-lg border border-chrome-subtle/50 bg-surface-tertiary/10 overflow-hidden max-h-[200px] overflow-y-auto">
         {commits.map((commit) => (
-          <GitCommitRow key={commit.fullHash} commit={commit} />
+          <GitCommitRow key={commit.fullHash} commit={commit} onClick={handleCommitClick} />
         ))}
       </div>
     </div>

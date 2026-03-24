@@ -3,7 +3,7 @@ import type { GitCommit, GitRef } from '../../types/index';
 
 const ROW_HEIGHT = 32;
 
-function formatRelativeDate(dateStr: string): string {
+export function formatRelativeDate(dateStr: string): string {
   const date = new Date(dateStr);
   const now = Date.now();
   const diffMs = now - date.getTime();
@@ -56,14 +56,14 @@ function RemoteIcon({ className }: { className?: string }) {
 
 /* ── Ref processing ────────────────────────────────────── */
 
-interface ProcessedRef {
+export interface ProcessedRef {
   type: 'current-branch' | 'branch' | 'tag' | 'remote';
   name: string;
   fullName: string;
 }
 
 /** Merge HEAD into its branch, de-duplicate remotes that mirror a local branch. */
-function processRefs(refs: GitRef[]): ProcessedRef[] {
+export function processRefs(refs: GitRef[]): ProcessedRef[] {
   const hasHead = refs.some((r) => r.type === 'head');
   const localBranches = new Set(refs.filter((r) => r.type === 'branch').map((r) => r.name));
 
@@ -99,7 +99,7 @@ function processRefs(refs: GitRef[]): ProcessedRef[] {
 
 /* ── Badge component ───────────────────────────────────── */
 
-function RefBadge({ pRef }: { pRef: ProcessedRef }) {
+export function RefBadge({ pRef }: { pRef: ProcessedRef }) {
   const base = 'inline-flex items-center gap-[3px] px-1.5 py-0 rounded text-[9px] font-medium leading-[18px] max-w-[160px]';
 
   switch (pRef.type) {
@@ -152,21 +152,27 @@ function RefBadge({ pRef }: { pRef: ProcessedRef }) {
 
 /* ── Row component ─────────────────────────────────────── */
 
-function GitCommitRow({ commit }: { commit: GitCommit }) {
+function GitCommitRow({ commit, onClick }: { commit: GitCommit; onClick?: (commit: GitCommit) => void }) {
   const [copied, setCopied] = useState(false);
 
-  const handleCopyHash = useCallback(() => {
+  const handleCopyHash = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
     navigator.clipboard.writeText(commit.fullHash);
     setCopied(true);
     setTimeout(() => setCopied(false), 1200);
   }, [commit.fullHash]);
 
+  const handleRowClick = useCallback(() => {
+    onClick?.(commit);
+  }, [onClick, commit]);
+
   const processedRefs = useMemo(() => processRefs(commit.refs), [commit.refs]);
 
   return (
     <div
-      className="flex items-center gap-2.5 px-2 group/row hover:bg-surface-secondary/50 transition-colors"
+      className={`flex items-center gap-2.5 px-2 group/row hover:bg-surface-secondary/50 transition-colors ${onClick ? 'cursor-pointer' : ''}`}
       style={{ height: ROW_HEIGHT }}
+      onClick={onClick ? handleRowClick : undefined}
     >
       {/* Hash */}
       <button
@@ -192,7 +198,7 @@ function GitCommitRow({ commit }: { commit: GitCommit }) {
 
       {/* Message */}
       <span className="text-[12px] text-content-primary truncate min-w-0 flex-1">
-        {commit.message}
+        {commit.message.split('\n')[0]}
       </span>
 
       {/* Author */}
@@ -204,6 +210,22 @@ function GitCommitRow({ commit }: { commit: GitCommit }) {
       <span className="shrink-0 text-[10px] text-content-tertiary tabular-nums w-[60px] text-right">
         {formatRelativeDate(commit.date)}
       </span>
+
+      {/* Chevron for clickable rows */}
+      {onClick && (
+        <svg
+          width="10"
+          height="10"
+          viewBox="0 0 10 10"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          className="shrink-0 text-content-tertiary/0 group-hover/row:text-content-tertiary transition-colors"
+        >
+          <path d="M3.5 2L6.5 5L3.5 8" />
+        </svg>
+      )}
     </div>
   );
 }

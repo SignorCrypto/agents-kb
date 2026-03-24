@@ -298,7 +298,9 @@ export async function getUnpushedCommits(projectPath: string, branch: string): P
   if (!(await isGitRepoRoot(projectPath))) return [];
 
   try {
-    const format = '%h%x00%H%x00%P%x00%an%x00%ae%x00%aI%x00%s%x00%D';
+    // Use %B (full body) instead of %s (subject only) to capture multi-line commit messages.
+    // %B can contain newlines, so we use record separator (%x1e) between commits.
+    const format = '%x1e%h%x00%H%x00%P%x00%an%x00%ae%x00%aI%x00%B%x00%D';
     let rangeSpec: string;
     try {
       await git(projectPath, 'rev-parse', '--verify', '--quiet', `${branch}@{upstream}`);
@@ -309,20 +311,29 @@ export async function getUnpushedCommits(projectPath: string, branch: string): P
       rangeSpec = `${defaultBranch}..${branch}`;
     }
     const output = await git(projectPath, 'log', rangeSpec, `--format=${format}`);
-    const lines = output.split('\n').filter((l) => l.includes('\0'));
+    // Split on record separator, filter empty chunks
+    const records = output.split('\x1e').filter((r) => r.includes('\0'));
 
     const fullToAbbrev = new Map<string, string>();
-    for (const line of lines) {
-      const parts = line.split('\0');
-      if (parts.length >= 2) fullToAbbrev.set(parts[1], parts[0]);
+    for (const record of records) {
+      const parts = record.split('\0');
+      if (parts.length >= 2) fullToAbbrev.set(parts[1], parts[0].replace(/^\n+/, ''));
     }
 
-    return lines.map((line) => {
-      const [hash, fullHash, parentsFull, authorName, authorEmail, date, message, refsRaw] = line.split('\0');
+    return records.map((record) => {
+      const parts = record.split('\0');
+      const hash = parts[0].replace(/^\n+/, '');
+      const fullHash = parts[1];
+      const parentsFull = parts[2];
+      const authorName = parts[3];
+      const authorEmail = parts[4];
+      const date = parts[5];
+      const message = (parts[6] || '').trim();
+      const refsRaw = parts[7] || '';
       const parents = parentsFull
         ? parentsFull.split(' ').map((p) => fullToAbbrev.get(p) || p.slice(0, 7)).filter(Boolean)
         : [];
-      return { hash, fullHash, parents, authorName, authorEmail, date, message, refs: parseRefs(refsRaw || '') };
+      return { hash, fullHash, parents, authorName, authorEmail, date, message, refs: parseRefs(refsRaw) };
     });
   } catch {
     return [];
