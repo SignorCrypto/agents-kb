@@ -29,6 +29,7 @@ export interface GitPanelState {
   jobAttributions: Map<string, Job[]>;
   runningJobs: Job[];
   runningJobFiles: Set<string>;
+  hasRunningDevJobs: boolean;
   // Whether we transitioned from compose → push (to show "Committed" header)
   didCommit: boolean;
   // Whether this is an unpublished branch
@@ -108,6 +109,11 @@ export function useGitPanel(
   const runningJobs = useMemo(
     () => projectBranchJobs.filter((j) => j.status === 'running'),
     [projectBranchJobs],
+  );
+
+  const hasRunningDevJobs = useMemo(
+    () => runningJobs.some((j) => j.column === 'development'),
+    [runningJobs],
   );
 
   const runningJobFiles = useMemo(() => {
@@ -312,6 +318,7 @@ export function useGitPanel(
   }, [api, projectId, refreshFiles]);
 
   const commit = useCallback(async () => {
+    if (hasRunningDevJobs) return;
     if (!commitMessage.trim() || stagedFiles.size === 0) return;
     setCommitLoading(true);
     setCommitError(null);
@@ -392,6 +399,7 @@ export function useGitPanel(
     jobAttributions,
     runningJobs,
     runningJobFiles,
+    hasRunningDevJobs,
     didCommit,
     isUnpublished: !hasUpstream,
     toggleFile,

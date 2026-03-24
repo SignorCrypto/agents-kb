@@ -7,6 +7,7 @@ interface CommitControlsProps {
   commitError: string | null;
   stagedCount: number;
   totalCount: number;
+  hasRunningDevJobs: boolean;
   onSetCommitMessage: (msg: string) => void;
   onRegenerate: () => void;
   onCommit: () => void;
@@ -20,6 +21,7 @@ export function CommitControls({
   commitError,
   stagedCount,
   totalCount,
+  hasRunningDevJobs,
   onSetCommitMessage,
   onRegenerate,
   onCommit,
@@ -29,7 +31,13 @@ export function CommitControls({
 
   return (
     <div className="border-t border-chrome-subtle/50 px-3 py-2.5 bg-surface-tertiary/10">
-      {settings.deleteCompletedJobsOnCommit && (
+      {hasRunningDevJobs && (
+        <div className="mb-2 rounded-lg border border-semantic-warning/30 bg-semantic-warning/10 px-2 py-1.5 text-[10px] leading-relaxed text-semantic-warning">
+          A job is running in development on this branch. Commit is blocked until it completes.
+        </div>
+      )}
+
+      {settings.deleteCompletedJobsOnCommit && !hasRunningDevJobs && (
         <div className="mb-2 rounded-lg border border-chrome-subtle/70 bg-surface-tertiary/25 px-2 py-1.5 text-[10px] leading-relaxed text-content-secondary">
           Completed jobs will be removed after commit.
         </div>
@@ -68,7 +76,7 @@ export function CommitControls({
             className="w-full h-full text-xs rounded-lg border border-chrome bg-surface-elevated px-3 py-2 text-content-primary placeholder:text-content-tertiary focus:outline-none focus:ring-2 focus:ring-focus-ring/40 resize-none font-mono leading-relaxed"
             autoFocus
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !hasRunningDevJobs) {
                 e.preventDefault();
                 onCommit();
               }
@@ -114,7 +122,7 @@ export function CommitControls({
           </button>
           <button
             onClick={onCommit}
-            disabled={commitLoading || generatingMessage || !commitMessage.trim() || stagedCount === 0}
+            disabled={commitLoading || generatingMessage || !commitMessage.trim() || stagedCount === 0 || hasRunningDevJobs}
             className="px-3 py-1.5 text-xs font-medium rounded bg-btn-primary text-content-inverted hover:bg-btn-primary-hover transition-colors disabled:opacity-50"
           >
             {commitLoading ? 'Committing...' : 'Commit'}

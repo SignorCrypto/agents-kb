@@ -58,6 +58,7 @@ export function GitPanelCompose({ state, onClose }: GitPanelComposeProps) {
           commitError={state.commitError}
           stagedCount={state.stagedFiles.size}
           totalCount={state.changedFiles.length}
+          hasRunningDevJobs={state.hasRunningDevJobs}
           onSetCommitMessage={state.setCommitMessage}
           onRegenerate={state.regenerateMessage}
           onCommit={state.commit}
