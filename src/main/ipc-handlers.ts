@@ -5,6 +5,7 @@ import path from 'path';
 import fs from 'fs';
 import {
   getProjects,
+  updateProjects,
   addProject,
   removeProject,
   renameProject,
@@ -31,7 +32,7 @@ import { setSkillsCache, registerSkillsIpc } from './skills/index';
 import { registerGitHistoryIpc } from './git-history/index';
 import { listProjectFiles } from './file-list';
 import { TitleGenerationQueue } from './title-generation';
-import type { Job, JobImage, JobDetailDrafts, JobComposerDraft, PendingQuestionDraft, OutputEntry, RawMessage, PendingQuestion, AppSettings, Project, ModelChoice, EffortLevel, PromptConfig, PermissionMode, DynamicModelInfo, ModelOption, Skill, AccountInfo, ThinkingMode } from '../shared/types';
+import type { Job, JobImage, JobDetailDrafts, JobComposerDraft, PendingQuestionDraft, OutputEntry, RawMessage, PendingQuestion, AppSettings, Project, ModelChoice, EffortLevel, PromptConfig, PermissionMode, DynamicModelInfo, ModelOption, Skill, AccountInfo, ThinkingMode, FollowUp, JobStepSnapshot } from '../shared/types';
 import { DEFAULT_PROMPT_CONFIGS, normalizeEffortForThinking } from '../shared/types';
 import {
   JobStepHistoryTracker,
@@ -44,6 +45,7 @@ import {
   serializeRollbackContext,
   validateRollbackTargets,
 } from './job-step-history';
+import type { RollbackFileTarget } from './job-step-history';
 
 /* ─── Supported Editors ─── */
 
@@ -488,6 +490,7 @@ async function startClaudeSession(
   phase: 'plan' | 'dev',
   sessionId?: string,
   promptOverride?: string,
+  overrides?: { model?: string; effort?: string },
 ) {
   const project = getProjects().find(p => p.id === job.projectId);
   if (!project) throw new Error('Project not found');
@@ -535,9 +538,9 @@ async function startClaudeSession(
     phase,
     sessionId,
     images,
-    model: effectiveThinking.model,
+    model: overrides?.model || effectiveThinking.model,
     thinkingMode: effectiveThinking.thinkingMode,
-    effort: effectiveThinking.effort,
+    effort: overrides?.effort || effectiveThinking.effort,
     permissionMode: settings.permissionMode,
   });
 
@@ -668,12 +671,20 @@ async function startClaudeSession(
       : current.contextUsage;
 
     if (code !== 0 || current.status === 'error') {
+      const rollbackCtx = pendingRollbacks.get(job.id);
+      pendingRollbacks.delete(job.id);
       stepHistoryTracker.discardStep(job.id);
       if (current.status !== 'error') {
+        // Rollback sessions: move back to done with error instead of staying in development
+        const errorMsg = rollbackCtx
+          ? `Rollback failed: process exited with code ${code}`
+          : `Claude process exited with code ${code}`;
         const updated = updateJob(job.id, {
+          ...(rollbackCtx ? { column: 'done' as const } : {}),
           status: 'error',
-          error: `Claude process exited with code ${code}`,
+          error: errorMsg,
           erroredAt: new Date().toISOString(),
+          ...(rollbackCtx?.originalSessionId ? { sessionId: rollbackCtx.originalSessionId } : {}),
           [tokenField]: mergedTokens,
           contextUsage,
         });
@@ -687,6 +698,67 @@ async function startClaudeSession(
     }
 
     if (phase === 'dev') {
+      // Check if this was a rollback session
+      const rollbackCtx = pendingRollbacks.get(job.id);
+      if (rollbackCtx) {
+        pendingRollbacks.delete(job.id);
+
+        const valid = await validateRollbackTargets(project.path, rollbackCtx.targets);
+        if (!valid) {
+          const updated = updateJob(job.id, {
+            column: 'done',
+            status: 'error',
+            error: 'Rollback output did not match the requested target state',
+            erroredAt: new Date().toISOString(),
+            ...(rollbackCtx.originalSessionId ? { sessionId: rollbackCtx.originalSessionId } : {}),
+            [tokenField]: mergedTokens,
+            contextUsage,
+          });
+          if (updated) {
+            sendToRenderer(getWindow, 'job:status-changed', updated);
+            sendToRenderer(getWindow, 'job:error', { jobId: job.id, error: updated.error! });
+          }
+          return;
+        }
+
+        if (rollbackCtx.isFullRejection) {
+          const updated = updateJob(job.id, {
+            column: 'done',
+            status: 'rejected',
+            rejectedAt: new Date().toISOString(),
+            [tokenField]: mergedTokens,
+            contextUsage,
+          });
+          if (updated) {
+            sendToRenderer(getWindow, 'job:status-changed', updated);
+          }
+        } else {
+          // Partial rollback: mark rolled-back steps and follow-ups
+          const now = new Date().toISOString();
+          const updatedStepSnapshots = rollbackCtx.stepSnapshots.map(s =>
+            s.order >= rollbackCtx.targetIndex ? { ...s, rejectedAt: now } : s
+          );
+          const updatedFollowUps = (rollbackCtx.followUps || []).map((f, i) => {
+            const stepOrder = i + 1;
+            return stepOrder >= rollbackCtx.targetIndex ? { ...f, rolledBack: true } : f;
+          });
+          const updated = updateJob(job.id, {
+            column: 'done',
+            status: 'completed',
+            stepSnapshots: updatedStepSnapshots,
+            followUps: updatedFollowUps,
+            ...(rollbackCtx.originalSessionId ? { sessionId: rollbackCtx.originalSessionId } : {}),
+            [tokenField]: mergedTokens,
+            contextUsage,
+          });
+          if (updated) {
+            sendToRenderer(getWindow, 'job:status-changed', updated);
+          }
+        }
+        return;
+      }
+
+      // Normal dev completion
       // Extract edited files from output log before completion
       const outputLog = getOutputLog(job.id);
       const editedFiles = extractEditedFilePaths(outputLog, project.path);
@@ -905,8 +977,9 @@ async function rewindViaResume(
 }
 
 /**
- * Shared rollback logic used by both reject-job and delete-with-rollback.
- * Uses SDK rewindFiles() as primary mechanism, model-assisted rollback as fallback.
+ * Synchronous rollback used by jobs:delete with rollback.
+ * Uses SDK rewindFiles() as primary mechanism, silent model-assisted rollback as fallback.
+ * For the visible (monitored) rollback flow, see jobs:reject-job handler.
  */
 async function rollbackJobToSnapshot(
   job: Job,
@@ -1076,6 +1149,20 @@ function registerDemoHandlers(): void {
  */
 const pendingImages = new Map<string, JobImage[]>();
 
+/**
+ * Tracks in-flight model-assisted rollback sessions.
+ * Stored when a rollback session is started, consumed by the session close handler.
+ */
+interface PendingRollback {
+  targetIndex: number;
+  targets: RollbackFileTarget[];
+  isFullRejection: boolean;
+  stepSnapshots: JobStepSnapshot[];
+  followUps?: FollowUp[];
+  originalSessionId?: string;
+}
+const pendingRollbacks = new Map<string, PendingRollback>();
+
 export function registerIpcHandlers(getWindow: WindowGetter): void {
   // App version — always available
   ipcMain.handle('app:get-version', () => app.getVersion());
@@ -1090,8 +1177,20 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
   batchedSender.start();
 
   // === Projects ===
-  ipcMain.handle('projects:list', () => {
-    return getProjects();
+  ipcMain.handle('projects:list', async () => {
+    const projects = getProjects();
+    let changed = false;
+    for (const project of projects) {
+      const currentIsGit = await isGitRepoRoot(project.path);
+      if (project.isGitRepo !== currentIsGit) {
+        project.isGitRepo = currentIsGit;
+        changed = true;
+      }
+    }
+    if (changed) {
+      updateProjects(projects);
+    }
+    return projects;
   });
 
   ipcMain.handle('projects:add', async () => {
@@ -1540,7 +1639,12 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
   ipcMain.handle('jobs:cancel', (_event, jobId: string) => {
     sessionManager.kill(jobId);
     stepHistoryTracker.discardStep(jobId);
+    const rollbackCtx = pendingRollbacks.get(jobId);
+    pendingRollbacks.delete(jobId);
     const updated = updateJob(jobId, {
+      // Rollback sessions: move back to done instead of staying in development
+      ...(rollbackCtx ? { column: 'done' as const } : {}),
+      ...(rollbackCtx?.originalSessionId ? { sessionId: rollbackCtx.originalSessionId } : {}),
       status: 'error',
       error: 'Cancelled by user',
       erroredAt: new Date().toISOString(),
@@ -1554,6 +1658,7 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     sessionManager.kill(jobId);
     stepHistoryTracker.discardStep(jobId);
     titleGenerationQueue.cancel(jobId);
+    pendingRollbacks.delete(jobId);
     const job = getJob(jobId);
 
     if (options?.rollback && job) {
@@ -2094,6 +2199,7 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
 
     // Default to first (original state) if no index specified
     const targetIndex = snapshotIndex ?? 0;
+    const isFullRejection = targetIndex === 0;
     const maxRollbackIndex = stepSnapshots.length > 0
       ? stepSnapshots.length - 1
       : userMessageUuids.length - 1;
@@ -2105,36 +2211,136 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     if (!project) throw new Error('Project not found');
 
     const allJobs = getJobs();
-    await rollbackJobToSnapshot(job, project, targetIndex, allJobs);
 
-    const isFullRejection = targetIndex === 0;
+    // Guard: refuse if another job on the same project is currently running
+    const runningOnSameProject = allJobs.some(
+      j => j.id !== job.id && j.projectId === job.projectId && (j.status === 'running' || j.status === 'waiting-input')
+    );
+    if (runningOnSameProject) {
+      throw new Error('Cannot roll back while another job on this project is running');
+    }
 
-    if (isFullRejection) {
-      // Full rejection: mark the entire job as rejected
-      const updated = updateJob(jobId, {
-        status: 'rejected',
-        rejectedAt: new Date().toISOString(),
-      });
-      if (updated) {
-        sendToRenderer(getWindow, 'job:status-changed', updated);
+    // Primary: try SDK rewindFiles() via session resume
+    let sdkRewindSucceeded = false;
+    if (job.sessionId && userMessageUuids.length > targetIndex) {
+      const targetUuid = userMessageUuids[targetIndex];
+      console.log(`[rollback] SDK rewind: sessionId=${job.sessionId}, targetUuid=${targetUuid}, targetIndex=${targetIndex}`);
+      const result = await rewindViaResume(project.path, job.sessionId, targetUuid);
+      if (result.canRewind) {
+        console.log(`[rollback] SDK rewind succeeded:`, result);
+        // Validate that files actually changed on disk before trusting the result
+        if (stepSnapshots.length > 0) {
+          const rollbackPlan = buildRollbackTargets(
+            job,
+            targetIndex,
+            await readCurrentStates(
+              project.path,
+              Array.from(
+                new Set(stepSnapshots.flatMap((s) => s.files.map((f) => f.path))),
+              ),
+            ),
+          );
+          sdkRewindSucceeded = !rollbackPlan || rollbackPlan.targets.length === 0;
+          if (!sdkRewindSucceeded) {
+            console.log(`[rollback] SDK rewind reported success but files don't match, falling back to model-assisted`);
+          }
+        } else {
+          sdkRewindSucceeded = true;
+        }
+      } else {
+        console.log(`[rollback] SDK rewind failed, falling back to model-assisted:`, result.error);
       }
-    } else {
-      // Partial rollback: only mark rolled-back steps as rejected, job stays completed
-      const now = new Date().toISOString();
-      const updatedStepSnapshots = stepSnapshots.map(s =>
-        s.order >= targetIndex ? { ...s, rejectedAt: now } : s
+    }
+
+    if (sdkRewindSucceeded) {
+      // SDK rewind worked — apply post-rollback state immediately
+      if (isFullRejection) {
+        const updated = updateJob(jobId, {
+          status: 'rejected',
+          rejectedAt: new Date().toISOString(),
+        });
+        if (updated) {
+          sendToRenderer(getWindow, 'job:status-changed', updated);
+        }
+      } else {
+        const now = new Date().toISOString();
+        const updatedStepSnapshots = stepSnapshots.map(s =>
+          s.order >= targetIndex ? { ...s, rejectedAt: now } : s
+        );
+        const updatedFollowUps = (job.followUps || []).map((f, i) => {
+          const stepOrder = i + 1;
+          return stepOrder >= targetIndex ? { ...f, rolledBack: true } : f;
+        });
+        const updated = updateJob(jobId, {
+          stepSnapshots: updatedStepSnapshots,
+          followUps: updatedFollowUps,
+        });
+        if (updated) {
+          sendToRenderer(getWindow, 'job:status-changed', updated);
+        }
+      }
+      return;
+    }
+
+    // Fallback: model-assisted rollback as a visible session
+    if (stepSnapshots.length > 0) {
+      const rollbackPlan = buildRollbackTargets(
+        job,
+        targetIndex,
+        await readCurrentStates(
+          project.path,
+          Array.from(
+            new Set(
+              stepSnapshots
+                .filter((step) => step.order >= targetIndex)
+                .flatMap((step) => step.files.map((file) => file.path)),
+            ),
+          ),
+        ),
       );
-      const updatedFollowUps = (job.followUps || []).map((f, i) => {
-        // Follow-up at index i corresponds to step order i+1
-        const stepOrder = i + 1;
-        return stepOrder >= targetIndex ? { ...f, rolledBack: true } : f;
+
+      if (!rollbackPlan) {
+        throw new Error('No stored step snapshots are available for rollback');
+      }
+      if (rollbackPlan.unsupportedBinary.length > 0) {
+        throw new Error(
+          `Rollback requires manual handling for binary files: ${rollbackPlan.unsupportedBinary.join(', ')}`,
+        );
+      }
+      if (rollbackPlan.targets.length === 0) {
+        // No file changes needed — apply state directly
+        if (isFullRejection) {
+          const updated = updateJob(jobId, { status: 'rejected', rejectedAt: new Date().toISOString() });
+          if (updated) sendToRenderer(getWindow, 'job:status-changed', updated);
+        }
+        return;
+      }
+
+      // Build the rollback prompt
+      const targetLabel = targetIndex === 0 ? 'Original' : getStepLabel(targetIndex);
+      const config = getPromptConfig('rollback');
+      const prompt = buildPromptText(config, `\n\n${serializeRollbackContext(rollbackPlan.targets, targetLabel)}`);
+
+      // Store rollback context for the session close handler
+      pendingRollbacks.set(jobId, {
+        targetIndex,
+        targets: rollbackPlan.targets,
+        isFullRejection,
+        stepSnapshots,
+        followUps: job.followUps,
+        originalSessionId: job.sessionId,
       });
-      const updated = updateJob(jobId, {
-        stepSnapshots: updatedStepSnapshots,
-        followUps: updatedFollowUps,
-      });
+
+      // Move job to development and start visible rollback session
+      const now = new Date().toISOString();
+      appendOutput(jobId, { timestamp: now, type: 'system', content: '--- Rolling back changes ---' });
+      const updated = updateJob(jobId, { column: 'development', status: 'running' });
       if (updated) {
         sendToRenderer(getWindow, 'job:status-changed', updated);
+        await startClaudeSession(updated, getWindow, batchedSender, 'dev', undefined, prompt, {
+          model: config.model,
+          effort: config.effort,
+        });
       }
     }
   });

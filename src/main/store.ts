@@ -164,6 +164,10 @@ export function getProjects(): Project[] {
   return store.get('projects');
 }
 
+export function updateProjects(projects: Project[]): void {
+  store.set('projects', projects);
+}
+
 export function addProject(project: Project): void {
   const projects = store.get('projects');
   projects.push(project);
