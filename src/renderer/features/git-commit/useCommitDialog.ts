@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { useElectronAPI } from '../../hooks/useElectronAPI';
-import { useKanbanStore } from '../../hooks/useKanbanStore';
-import type { ChangedFile, GitCommit, Job } from '../../types/index';
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useElectronAPI } from "../../hooks/useElectronAPI";
+import { useKanbanStore } from "../../hooks/useKanbanStore";
+import type { ChangedFile, GitCommit, Job } from "../../types/index";
 
 export interface CommitDialogState {
   // File list
@@ -18,7 +18,7 @@ export interface CommitDialogState {
   // Commit flow
   commitLoading: boolean;
   commitError: string | null;
-  commitPhase: 'compose' | 'push';
+  commitPhase: "compose" | "push";
   clearedCompletedCount: number;
   // Push
   pushing: boolean;
@@ -64,11 +64,11 @@ export function useCommitDialog(
   const [loadingDiffs, setLoadingDiffs] = useState(false);
 
   // Commit state
-  const [commitMessage, setCommitMessage] = useState('');
+  const [commitMessage, setCommitMessage] = useState("");
   const [generatingMessage, setGeneratingMessage] = useState(false);
   const [commitLoading, setCommitLoading] = useState(false);
   const [commitError, setCommitError] = useState<string | null>(null);
-  const [commitPhase, setCommitPhase] = useState<'compose' | 'push'>('compose');
+  const [commitPhase, setCommitPhase] = useState<"compose" | "push">("compose");
   const [clearedCompletedCount, setClearedCompletedCount] = useState(0);
   const [pushing, setPushing] = useState(false);
   const [unpushedCommits, setUnpushedCommits] = useState<GitCommit[]>([]);
@@ -87,10 +87,7 @@ export function useCommitDialog(
     [jobs, projectId, branch],
   );
 
-  const runningJobs = useMemo(
-    () => projectBranchJobs.filter((j) => j.status === 'running'),
-    [projectBranchJobs],
-  );
+  const runningJobs = useMemo(() => projectBranchJobs.filter((j) => j.status === "running"), [projectBranchJobs]);
 
   const runningJobFiles = useMemo(() => {
     const files = new Set<string>();
@@ -170,7 +167,7 @@ export function useCommitDialog(
     // Fetch each file's diff and update state progressively
     const promises = changedFiles.map((file) =>
       api
-        .gitDiffFile(projectId, file.path, file.status === 'untracked')
+        .gitDiffFile(projectId, file.path, file.status === "untracked")
         .then((diff) => {
           if (!cancelled) {
             setAllDiffs((prev) => {
@@ -264,7 +261,7 @@ export function useCommitDialog(
     const result = await api.gitCommit(projectId, commitMessage.trim(), branch, files);
 
     if (!result.success) {
-      setCommitError(result.error || 'Commit failed');
+      setCommitError(result.error || "Commit failed");
       setCommitLoading(false);
       return;
     }
@@ -279,9 +276,10 @@ export function useCommitDialog(
     const updated = await api.gitBranchesStatus(projectId);
     const branchAfter = updated?.find((b) => b.name === branch);
     if (branchAfter && branchAfter.ahead > 0) {
-      setCommitPhase('push');
+      setCommitPhase("push");
       setLoadingUnpushed(true);
-      api.gitUnpushedCommits(projectId, branch)
+      api
+        .gitUnpushedCommits(projectId, branch)
         .then((commits) => setUnpushedCommits(commits))
         .catch(() => setUnpushedCommits([]))
         .finally(() => setLoadingUnpushed(false));
@@ -300,7 +298,7 @@ export function useCommitDialog(
     const result = await api.gitPush(projectId, branch);
     setPushing(false);
     if (!result.success) {
-      setCommitError(result.error || 'Push failed');
+      setCommitError(result.error || "Push failed");
       return;
     }
     onPushed?.();

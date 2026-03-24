@@ -35,7 +35,7 @@ function parseRefs(refStr: string): GitRef[] {
 
 async function getTotalCount(projectPath: string): Promise<number> {
   try {
-    const result = await git(projectPath, 'rev-list', '--all', '--count');
+    const result = await git(projectPath, 'rev-list', '--branches', '--tags', '--remotes', '--count');
     return parseInt(result.trim(), 10) || 0;
   } catch {
     return 0;
@@ -54,7 +54,7 @@ async function getGitLog(
   if (branch) {
     args.push(branch);
   } else {
-    args.push('--all');
+    args.push('--branches', '--tags', '--remotes');
   }
 
   const [output, totalCount] = await Promise.all([
