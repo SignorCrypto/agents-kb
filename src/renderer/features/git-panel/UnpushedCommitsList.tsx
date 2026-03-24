@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import type { GitCommit } from '../../types/index';
 import GitCommitRow from '../git-history/GitCommitRow';
+import { computeGraphLayout } from '../git-history/graph-layout';
 import { CommitDetailView } from './CommitDetailView';
 
 interface UnpushedCommitsListProps {
@@ -11,6 +12,7 @@ interface UnpushedCommitsListProps {
 
 export function UnpushedCommitsList({ commits, loading, onDetailToggle }: UnpushedCommitsListProps) {
   const [selectedCommit, setSelectedCommit] = useState<GitCommit | null>(null);
+  const layout = useMemo(() => computeGraphLayout(commits), [commits]);
 
   const handleCommitClick = (commit: GitCommit) => {
     setSelectedCommit(commit);
@@ -66,8 +68,8 @@ export function UnpushedCommitsList({ commits, loading, onDetailToggle }: Unpush
         </span>
       </div>
       <div className="rounded-lg border border-chrome-subtle/50 bg-surface-tertiary/10 overflow-hidden max-h-[200px] overflow-y-auto">
-        {commits.map((commit) => (
-          <GitCommitRow key={commit.fullHash} commit={commit} onClick={handleCommitClick} />
+        {layout.nodes.map((node, i) => (
+          <GitCommitRow key={node.commit.fullHash} commit={node.commit} graphData={layout.rowGraphData[i]} onClick={handleCommitClick} />
         ))}
       </div>
     </div>

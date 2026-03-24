@@ -1,7 +1,9 @@
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useState } from 'react';
 import { useGitHistory } from './useGitHistory';
 import { computeGraphLayout } from './graph-layout';
 import GitCommitRow from './GitCommitRow';
+import { CommitDetailView } from '../git-panel/CommitDetailView';
+import type { GitCommit } from '../../types/index';
 
 interface GitHistoryPanelProps {
   projectId: string;
@@ -10,11 +12,20 @@ interface GitHistoryPanelProps {
 export function GitHistoryPanel({ projectId }: GitHistoryPanelProps) {
   const { commits, loading, hasMore, totalCount, loadMore, refresh, error } = useGitHistory(projectId);
 
+  const [selectedCommit, setSelectedCommit] = useState<GitCommit | null>(null);
   const layout = useMemo(() => computeGraphLayout(commits), [commits]);
 
   const handleLoadMore = useCallback(() => {
     loadMore();
   }, [loadMore]);
+
+  const handleCommitClick = useCallback((commit: GitCommit) => {
+    setSelectedCommit(commit);
+  }, []);
+
+  const handleBack = useCallback(() => {
+    setSelectedCommit(null);
+  }, []);
 
   if (error && commits.length === 0) {
     return (
@@ -69,12 +80,18 @@ export function GitHistoryPanel({ projectId }: GitHistoryPanelProps) {
         </button>
       </div>
 
-      {/* Scrollable commit list */}
+      {/* Scrollable commit list or detail view */}
       <div className="flex-1 overflow-auto min-h-0">
+        {selectedCommit ? (
+          <div className="px-4 py-2">
+            <CommitDetailView commit={selectedCommit} onBack={handleBack} />
+          </div>
+        ) : (
+        <>
         {/* Commit rows with inline graph */}
         <div className="min-w-0">
           {layout.nodes.map((node, i) => (
-            <GitCommitRow key={node.commit.hash} commit={node.commit} graphData={layout.rowGraphData[i]} />
+            <GitCommitRow key={node.commit.hash} commit={node.commit} graphData={layout.rowGraphData[i]} onClick={handleCommitClick} />
           ))}
         </div>
 
@@ -98,6 +115,8 @@ export function GitHistoryPanel({ projectId }: GitHistoryPanelProps) {
             <span className="text-[10px] text-content-tertiary/50">End of history</span>
           ) : null}
         </div>
+        </>
+        )}
       </div>
     </div>
   );

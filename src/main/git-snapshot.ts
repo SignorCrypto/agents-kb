@@ -4,7 +4,8 @@ import path from 'path';
 import fs from 'fs/promises';
 import { createHash } from 'crypto';
 import type { FileState } from './job-step-history';
-import type { ChangedFile, GitCommit, GitRef } from '../shared/types';
+import type { ChangedFile, GitCommit } from '../shared/types';
+import { parseRefs } from './git-utils';
 
 export interface GitSnapshot {
   commitSha: string;
@@ -273,25 +274,6 @@ export async function gitDeleteBranch(
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
-}
-
-function parseRefs(refStr: string): GitRef[] {
-  if (!refStr.trim()) return [];
-  return refStr.split(',').map((r) => r.trim()).filter(Boolean).map((raw) => {
-    if (raw.startsWith('HEAD -> ')) {
-      return { name: raw.replace('HEAD -> ', ''), type: 'head' as const };
-    }
-    if (raw.startsWith('tag: ')) {
-      return { name: raw.replace('tag: ', ''), type: 'tag' as const };
-    }
-    if (raw === 'HEAD') {
-      return { name: 'HEAD', type: 'head' as const };
-    }
-    if (raw.includes('/')) {
-      return { name: raw, type: 'remote' as const };
-    }
-    return { name: raw, type: 'branch' as const };
-  });
 }
 
 export async function getUnpushedCommits(projectPath: string, branch: string): Promise<GitCommit[]> {
