@@ -38,7 +38,7 @@ export function CommitControls({
       {/* Commit message */}
       <div className="mb-2 h-[76px]">
         {generatingMessage ? (
-          <div className="flex flex-col gap-2 h-full rounded border border-chrome bg-surface-tertiary/40 px-2.5 py-2 overflow-hidden">
+          <div className="flex flex-col gap-2 h-full rounded-lg border border-chrome bg-surface-elevated px-3 py-2 overflow-hidden">
             <div className="flex items-center gap-2 text-xs text-content-tertiary">
               <svg
                 className="animate-spin h-3 w-3 shrink-0"
@@ -65,7 +65,7 @@ export function CommitControls({
             value={commitMessage}
             onChange={(e) => onSetCommitMessage(e.target.value)}
             placeholder="Commit message..."
-            className="w-full h-full text-xs rounded border border-chrome bg-surface-tertiary/40 px-2.5 py-2 text-content-primary placeholder:text-content-tertiary outline-none focus:border-active-indicator/50 focus:ring-1 focus:ring-focus-ring/30 resize-none font-mono leading-relaxed"
+            className="w-full h-full text-xs rounded-lg border border-chrome bg-surface-elevated px-3 py-2 text-content-primary placeholder:text-content-tertiary focus:outline-none focus:ring-2 focus:ring-focus-ring/40 resize-none font-mono leading-relaxed"
             autoFocus
             onKeyDown={(e) => {
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {

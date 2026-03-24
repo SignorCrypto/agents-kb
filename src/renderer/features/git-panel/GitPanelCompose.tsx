@@ -46,6 +46,7 @@ export function GitPanelCompose({ state, onClose }: GitPanelComposeProps) {
             onToggleAll={state.toggleAll}
             onSelectFile={handleFileClickScroll}
             onDiscardFile={state.discardFile}
+            onDiscardAll={state.discardAll}
             onRefresh={state.refreshFiles}
           />
         </div>

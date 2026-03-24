@@ -85,6 +85,22 @@ export async function checkoutBranch(projectPath: string, branch: string): Promi
   await git(projectPath, 'checkout', branch);
 }
 
+export async function createBranch(
+  projectPath: string,
+  newBranch: string,
+  baseBranch: string,
+): Promise<{ success: boolean; error?: string }> {
+  if (!(await isGitRepoRoot(projectPath))) {
+    return { success: false, error: 'Not a git repo' };
+  }
+  try {
+    await git(projectPath, 'branch', newBranch, baseBranch);
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 export async function captureSnapshot(
   projectPath: string,
   jobId: string,
@@ -478,6 +494,18 @@ export async function gitDiscardFile(
     } else {
       await git(projectPath, 'checkout', 'HEAD', '--', filePath);
     }
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function gitDiscardAllChanges(
+  projectPath: string,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await git(projectPath, 'checkout', 'HEAD', '--', '.');
+    await git(projectPath, 'clean', '-fd');
     return { success: true };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };

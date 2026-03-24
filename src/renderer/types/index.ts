@@ -32,6 +32,7 @@ export interface ElectronAPI {
   gitBranchesStatus: (projectId: string) => Promise<{ name: string; isCurrent: boolean; ahead: number; dirtyFiles: number; hasUpstream: boolean }[] | null>;
   gitPush: (projectId: string, branch: string) => Promise<{ success: boolean; error?: string }>;
   gitDeleteBranch: (projectId: string, branch: string) => Promise<{ success: boolean; error?: string }>;
+  gitCreateBranch: (projectId: string, newBranch: string, baseBranch: string) => Promise<{ success: boolean; error?: string }>;
   gitCommit: (
     projectId: string,
     message: string,
@@ -43,6 +44,7 @@ export interface ElectronAPI {
   gitListChangedFiles: (projectId: string) => Promise<ChangedFile[]>;
   gitDiffFile: (projectId: string, filePath: string, isUntracked: boolean) => Promise<string>;
   gitDiscardFile: (projectId: string, filePath: string, isUntracked: boolean) => Promise<{ success: boolean; error?: string }>;
+  gitDiscardAll: (projectId: string) => Promise<{ success: boolean; error?: string }>;
   gitUnpushedCommits: (projectId: string, branch: string) => Promise<GitCommit[]>;
 
   // Jobs

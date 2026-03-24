@@ -18,12 +18,14 @@ const api: ElectronAPI = {
   gitBranchesStatus: (projectId) => ipcRenderer.invoke('git:branches-status', projectId),
   gitPush: (projectId, branch) => ipcRenderer.invoke('git:push', projectId, branch),
   gitDeleteBranch: (projectId, branch) => ipcRenderer.invoke('git:delete-branch', projectId, branch),
+  gitCreateBranch: (projectId, newBranch, baseBranch) => ipcRenderer.invoke('git:create-branch', projectId, newBranch, baseBranch),
   gitCommit: (projectId, message, branch, files) => ipcRenderer.invoke('git:commit', projectId, message, branch, files),
   gitGenerateCommitMessage: (projectId, branch) => ipcRenderer.invoke('git:generate-commit-message', projectId, branch),
   gitLog: (projectId: string, page?: number, branch?: string) => ipcRenderer.invoke('git:log', projectId, page, branch),
   gitListChangedFiles: (projectId) => ipcRenderer.invoke('git:list-changed-files', projectId),
   gitDiffFile: (projectId, filePath, isUntracked) => ipcRenderer.invoke('git:diff-file', projectId, filePath, isUntracked),
   gitDiscardFile: (projectId, filePath, isUntracked) => ipcRenderer.invoke('git:discard-file', projectId, filePath, isUntracked),
+  gitDiscardAll: (projectId) => ipcRenderer.invoke('git:discard-all', projectId),
   gitUnpushedCommits: (projectId, branch) => ipcRenderer.invoke('git:unpushed-commits', projectId, branch),
 
   // Jobs

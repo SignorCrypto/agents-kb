@@ -42,6 +42,7 @@ export interface GitPanelActions {
   setCommitMessage: (msg: string) => void;
   regenerateMessage: () => void;
   discardFile: (filePath: string, isUntracked: boolean) => Promise<void>;
+  discardAll: () => Promise<void>;
   commit: () => Promise<void>;
   push: () => Promise<void>;
   deleteBranch: () => Promise<void>;
@@ -295,6 +296,21 @@ export function useGitPanel(
     [api, projectId, refreshFiles],
   );
 
+  const discardAll = useCallback(async () => {
+    try {
+      const result = await api.gitDiscardAll(projectId);
+      if (!result.success) {
+        setCommitError(`Failed to discard all changes: ${result.error}`);
+        return;
+      }
+      setSelectedFile(null);
+      setAllDiffs(new Map());
+      await refreshFiles();
+    } catch {
+      setCommitError('Failed to discard all changes');
+    }
+  }, [api, projectId, refreshFiles]);
+
   const commit = useCallback(async () => {
     if (!commitMessage.trim() || stagedFiles.size === 0) return;
     setCommitLoading(true);
@@ -384,6 +400,7 @@ export function useGitPanel(
     setCommitMessage,
     regenerateMessage,
     discardFile,
+    discardAll,
     commit,
     push,
     deleteBranch,

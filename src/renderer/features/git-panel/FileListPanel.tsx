@@ -13,6 +13,7 @@ interface FileListPanelProps {
   onToggleAll: () => void;
   onSelectFile: (filePath: string | null) => void;
   onDiscardFile: (filePath: string, isUntracked: boolean) => Promise<void>;
+  onDiscardAll: () => Promise<void>;
   onRefresh: () => Promise<void>;
 }
 
@@ -50,9 +51,11 @@ export function FileListPanel({
   onToggleAll,
   onSelectFile,
   onDiscardFile,
+  onDiscardAll,
   onRefresh,
 }: FileListPanelProps) {
   const [discardConfirm, setDiscardConfirm] = useState<string | null>(null);
+  const [discardAllConfirm, setDiscardAllConfirm] = useState(false);
   const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
   // Auto-scroll the selected file into view in the left panel
@@ -82,7 +85,7 @@ export function FileListPanel({
   );
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="relative flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-chrome-subtle/50 bg-surface-tertiary/20">
         <div className="flex items-center gap-2">
@@ -94,6 +97,16 @@ export function FileListPanel({
           </span>
         </div>
         <div className="flex items-center gap-1">
+          <button
+            onClick={() => setDiscardAllConfirm(true)}
+            disabled={files.length === 0}
+            className="p-1 rounded hover:bg-semantic-error/15 text-content-tertiary hover:text-semantic-error transition-colors disabled:opacity-30 disabled:pointer-events-none"
+            title="Discard all changes"
+          >
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+              <path d="M3 5h10M6 5V3.5a1 1 0 011-1h2a1 1 0 011 1V5m1.5 0v8a1.5 1.5 0 01-1.5 1.5H6A1.5 1.5 0 014.5 13V5" />
+            </svg>
+          </button>
           <button
             onClick={onRefresh}
             className="p-1 rounded hover:bg-surface-tertiary/70 text-content-tertiary hover:text-content-secondary transition-colors"
@@ -289,6 +302,40 @@ export function FileListPanel({
           })
         )}
       </div>
+
+      {/* Discard all confirmation overlay */}
+      {discardAllConfirm && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-surface-primary/80 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-3 p-4 bg-surface-elevated border border-chrome/50 rounded-lg shadow-lg animate-[dialogIn_100ms_ease-out]">
+            <div className="flex items-center gap-2 text-semantic-error">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M8 1L1 14h14L8 1zm0 4.5v4m0 1.5v1" />
+              </svg>
+              <span className="text-xs font-semibold">Discard all changes?</span>
+            </div>
+            <p className="text-[10px] text-content-tertiary text-center max-w-[200px]">
+              This will permanently discard all {files.length} changed file{files.length !== 1 ? 's' : ''}. This cannot be undone.
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setDiscardAllConfirm(false)}
+                className="px-3 py-1 text-[11px] rounded text-content-secondary hover:bg-surface-tertiary/70 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  setDiscardAllConfirm(false);
+                  await onDiscardAll();
+                }}
+                className="px-3 py-1 text-[11px] font-medium rounded bg-semantic-error/15 text-semantic-error hover:bg-semantic-error/25 transition-colors"
+              >
+                Discard All
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

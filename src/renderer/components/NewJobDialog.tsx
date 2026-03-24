@@ -28,6 +28,9 @@ export function NewJobDialog() {
   const [currentBranch, setCurrentBranch] = useState('');
   const [selectedBranch, setSelectedBranch] = useState('');
   const [loadingBranches, setLoadingBranches] = useState(false);
+  const [isCreatingBranch, setIsCreatingBranch] = useState(false);
+  const [newBranchName, setNewBranchName] = useState('');
+  const [branchError, setBranchError] = useState('');
   const [selectedModel, setSelectedModel] = useState<ModelChoice>(settings.defaultModel);
   const [selectedThinkingMode, setSelectedThinkingMode] = useState<ThinkingMode>(settings.defaultThinkingMode);
   const [selectedEffort, setSelectedEffort] = useState<EffortLevel | undefined>(settings.defaultEffort);
@@ -42,6 +45,22 @@ export function NewJobDialog() {
   const branchSelectRef = useRef<HTMLSelectElement>(null);
 
   const togglePlan = useCallback(() => setSkipPlanning((v) => !v), []);
+
+  const CREATE_BRANCH_VALUE = '__create_new__';
+
+  const newBranchInputRef = useRef<HTMLInputElement>(null);
+
+  const validateBranchName = (name: string): string | null => {
+    if (!name.trim()) return 'Branch name is required';
+    if (/\s/.test(name)) return 'Cannot contain spaces';
+    if (name.startsWith('-')) return 'Cannot start with a dash';
+    if (name.includes('..')) return 'Cannot contain ".."';
+    if (/[~^:\\]/.test(name)) return 'Contains invalid characters';
+    if (name.endsWith('.lock')) return 'Cannot end with ".lock"';
+    if (/[./]$/.test(name)) return 'Cannot end with "." or "/"';
+    if (branches.includes(name)) return 'Branch already exists';
+    return null;
+  };
 
   useEffect(() => {
     if (normalizedSelectedEffort !== selectedEffort) {
@@ -86,8 +105,26 @@ export function NewJobDialog() {
     if (!selectedProjectId || !prompt.trim()) return;
     setSubmitting(true);
     setError('');
+    setBranchError('');
     try {
-      const branchToUse = branches.length > 0 ? selectedBranch : undefined;
+      let branchToUse: string | undefined;
+      if (isCreatingBranch && newBranchName.trim()) {
+        const validationError = validateBranchName(newBranchName.trim());
+        if (validationError) {
+          setBranchError(validationError);
+          setSubmitting(false);
+          return;
+        }
+        const result = await api.gitCreateBranch(selectedProjectId, newBranchName.trim(), selectedBranch);
+        if (!result.success) {
+          setError(result.error || 'Failed to create branch');
+          setSubmitting(false);
+          return;
+        }
+        branchToUse = newBranchName.trim();
+      } else {
+        branchToUse = branches.length > 0 ? selectedBranch : undefined;
+      }
       const modelToUse = selectedModel !== settings.defaultModel ? selectedModel : undefined;
       const thinkingModeToUse = selectedThinkingMode !== settings.defaultThinkingMode ? selectedThinkingMode : undefined;
       const fallbackEffort = normalizeEffortForThinking(currentModelOption, selectedThinkingMode, settings.defaultEffort);
@@ -194,14 +231,28 @@ export function NewJobDialog() {
                   <circle cx="12" cy="5" r="2" />
                   <path d="M12 7c0 3-2 4-6 6" />
                 </svg>
-                Branch
+                {isCreatingBranch ? 'New Branch' : 'Branch'}
                 <span className="ml-auto"><Kbd shortcutId="focusBranch" /></span>
               </label>
+
+              {/* Main dropdown — includes real branches + "Create new branch…" action */}
               <div className="relative">
                 <select
                   ref={branchSelectRef}
-                  value={selectedBranch}
-                  onChange={(e) => setSelectedBranch(e.target.value)}
+                  value={isCreatingBranch ? CREATE_BRANCH_VALUE : selectedBranch}
+                  onChange={(e) => {
+                    if (e.target.value === CREATE_BRANCH_VALUE) {
+                      setIsCreatingBranch(true);
+                      setBranchError('');
+                      setNewBranchName('');
+                      requestAnimationFrame(() => newBranchInputRef.current?.focus());
+                    } else {
+                      setIsCreatingBranch(false);
+                      setSelectedBranch(e.target.value);
+                      setNewBranchName('');
+                      setBranchError('');
+                    }
+                  }}
                   disabled={loadingBranches}
                   className="w-full appearance-none px-3 pr-10 py-2 text-sm rounded-lg border border-chrome bg-surface-elevated focus:outline-none focus:ring-2 focus:ring-focus-ring/40"
                 >
@@ -216,11 +267,60 @@ export function NewJobDialog() {
                       </option>
                     );
                   })}
+                  <option value={CREATE_BRANCH_VALUE}>+ Create new branch...</option>
                 </select>
                 <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-content-secondary" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M4 6l4 4 4-4" />
                 </svg>
               </div>
+
+              {/* New branch fields — revealed when "Create new branch" is selected */}
+              {isCreatingBranch && (
+                <div className="mt-2 space-y-2">
+                  <input
+                    ref={newBranchInputRef}
+                    type="text"
+                    value={newBranchName}
+                    onChange={(e) => {
+                      setNewBranchName(e.target.value);
+                      if (branchError) setBranchError('');
+                    }}
+                    placeholder="feature/my-branch"
+                    className={`w-full px-3 py-2 text-sm rounded-lg border bg-surface-elevated focus:outline-none focus:ring-2 focus:ring-focus-ring/40 ${
+                      branchError ? 'border-semantic-error' : 'border-chrome'
+                    }`}
+                  />
+                  {branchError && (
+                    <p className="text-[11px] text-semantic-error">{branchError}</p>
+                  )}
+                  <div>
+                    <span className="text-[11px] text-content-tertiary mb-1 block">Based on</span>
+                    <div className="relative">
+                      <select
+                        value={selectedBranch}
+                        onChange={(e) => setSelectedBranch(e.target.value)}
+                        disabled={loadingBranches}
+                        className="w-full appearance-none px-3 pr-10 py-1.5 text-xs rounded-lg border border-chrome bg-surface-elevated focus:outline-none focus:ring-2 focus:ring-focus-ring/40"
+                      >
+                        {branches.map((b) => {
+                          const suffixes: string[] = [];
+                          if (b === currentBranch) suffixes.push('current');
+                          if (b === selectedProject?.defaultBranch) suffixes.push('default');
+                          const suffix = suffixes.length > 0 ? ` (${suffixes.join(', ')})` : '';
+                          return (
+                            <option key={b} value={b}>
+                              {b}{suffix}
+                            </option>
+                          );
+                        })}
+                      </select>
+                      <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-content-secondary" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M4 6l4 4 4-4" />
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           );
         })()}
