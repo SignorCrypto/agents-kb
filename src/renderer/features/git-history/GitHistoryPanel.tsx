@@ -1,7 +1,6 @@
 import { useMemo, useCallback } from 'react';
 import { useGitHistory } from './useGitHistory';
 import { computeGraphLayout } from './graph-layout';
-import GitGraph, { ROW_HEIGHT } from './GitGraph';
 import GitCommitRow from './GitCommitRow';
 
 interface GitHistoryPanelProps {
@@ -72,19 +71,11 @@ export function GitHistoryPanel({ projectId }: GitHistoryPanelProps) {
 
       {/* Scrollable commit list */}
       <div className="flex-1 overflow-auto min-h-0">
-        {/* Graph + rows container */}
-        <div className="flex min-w-0">
-          {/* SVG graph rail */}
-          <div className="shrink-0 pl-2">
-            <GitGraph layout={layout} />
-          </div>
-
-          {/* Commit rows */}
-          <div className="flex-1 min-w-0">
-            {layout.nodes.map((node) => (
-              <GitCommitRow key={node.commit.hash} commit={node.commit} />
-            ))}
-          </div>
+        {/* Commit rows with inline graph */}
+        <div className="min-w-0">
+          {layout.nodes.map((node, i) => (
+            <GitCommitRow key={node.commit.hash} commit={node.commit} graphData={layout.rowGraphData[i]} />
+          ))}
         </div>
 
         {/* Load more / loading indicator */}

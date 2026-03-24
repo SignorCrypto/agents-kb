@@ -1,5 +1,7 @@
 import { memo, useState, useCallback, useMemo } from 'react';
 import type { GitCommit, GitRef } from '../../types/index';
+import type { RowGraphData } from './graph-layout';
+import GitGraphCell from './GitGraph';
 
 const ROW_HEIGHT = 32;
 
@@ -152,7 +154,7 @@ export function RefBadge({ pRef }: { pRef: ProcessedRef }) {
 
 /* ── Row component ─────────────────────────────────────── */
 
-function GitCommitRow({ commit, onClick }: { commit: GitCommit; onClick?: (commit: GitCommit) => void }) {
+function GitCommitRow({ commit, graphData, onClick }: { commit: GitCommit; graphData?: RowGraphData; onClick?: (commit: GitCommit) => void }) {
   const [copied, setCopied] = useState(false);
 
   const handleCopyHash = useCallback((e: React.MouseEvent) => {
@@ -174,6 +176,9 @@ function GitCommitRow({ commit, onClick }: { commit: GitCommit; onClick?: (commi
       style={{ height: ROW_HEIGHT }}
       onClick={onClick ? handleRowClick : undefined}
     >
+      {/* Graph cell */}
+      {graphData && <GitGraphCell data={graphData} />}
+
       {/* Hash */}
       <button
         onClick={handleCopyHash}

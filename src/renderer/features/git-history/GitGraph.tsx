@@ -1,75 +1,67 @@
-import { memo, useMemo } from 'react';
-import type { GraphLayout } from './graph-layout';
+import { memo } from 'react';
+import type { RowGraphData } from './graph-layout';
 
 export const RAIL_WIDTH = 16;
 export const ROW_HEIGHT = 32;
 const NODE_RADIUS = 4;
 const STROKE_WIDTH = 1.5;
 
-function GitGraph({ layout }: { layout: GraphLayout }) {
-  const width = (layout.maxRail + 1) * RAIL_WIDTH + RAIL_WIDTH;
-  const height = layout.nodes.length * ROW_HEIGHT;
-
-  const paths = useMemo(() => {
-    return layout.edges.map((edge, i) => {
-      const x1 = edge.fromRail * RAIL_WIDTH + RAIL_WIDTH / 2;
-      const y1 = edge.fromRow * ROW_HEIGHT + ROW_HEIGHT / 2;
-      const x2 = edge.toRail * RAIL_WIDTH + RAIL_WIDTH / 2;
-      const y2 = edge.toRow * ROW_HEIGHT + ROW_HEIGHT / 2;
-
-      let d: string;
-      if (x1 === x2) {
-        // Straight vertical line
-        d = `M ${x1} ${y1} L ${x2} ${y2}`;
-      } else {
-        // Curved merge/branch line using cubic bezier
-        const midY = (y1 + y2) / 2;
-        d = `M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}`;
-      }
-
-      return (
-        <path
-          key={`e-${i}`}
-          d={d}
-          stroke={edge.color}
-          strokeWidth={STROKE_WIDTH}
-          fill="none"
-          strokeLinecap="round"
-        />
-      );
-    });
-  }, [layout.edges]);
-
-  const circles = useMemo(() => {
-    return layout.nodes.map((node) => {
-      const cx = node.rail * RAIL_WIDTH + RAIL_WIDTH / 2;
-      const cy = node.row * ROW_HEIGHT + ROW_HEIGHT / 2;
-      const hasRefs = node.commit.refs.length > 0;
-      return (
-        <circle
-          key={`n-${node.commit.hash}`}
-          cx={cx}
-          cy={cy}
-          r={hasRefs ? NODE_RADIUS + 1 : NODE_RADIUS}
-          fill={node.color}
-          stroke="rgb(var(--color-bg-elevated))"
-          strokeWidth={hasRefs ? 2 : 1.5}
-        />
-      );
-    });
-  }, [layout.nodes]);
+function GitGraphCell({ data }: { data: RowGraphData }) {
+  const width = (data.maxRail + 1) * RAIL_WIDTH;
 
   return (
-    <svg
-      width={width}
-      height={height}
-      className="shrink-0"
-      style={{ minWidth: width }}
-    >
-      {paths}
-      {circles}
+    <svg width={width} height={ROW_HEIGHT} className="shrink-0" style={{ minWidth: width }}>
+      {/* Vertical line segments */}
+      {data.verticals.map((v, i) => {
+        const x = v.rail * RAIL_WIDTH + RAIL_WIDTH / 2;
+        const y1 = v.top ? 0 : ROW_HEIGHT / 2;
+        const y2 = v.bottom ? ROW_HEIGHT : ROW_HEIGHT / 2;
+        return (
+          <line
+            key={`v-${i}`}
+            x1={x}
+            y1={y1}
+            x2={x}
+            y2={y2}
+            stroke={v.color}
+            strokeWidth={STROKE_WIDTH}
+            strokeLinecap="round"
+          />
+        );
+      })}
+
+      {/* Branch/merge curves */}
+      {data.curves.map((c, i) => {
+        const x1 = c.fromRail * RAIL_WIDTH + RAIL_WIDTH / 2;
+        const x2 = c.toRail * RAIL_WIDTH + RAIL_WIDTH / 2;
+        // Departure curve: starts at node mid-height, exits at bottom
+        // Arrival curve: enters from top, arrives at node mid-height
+        const d = c.arrival
+          ? `M ${x1} 0 C ${x1} ${ROW_HEIGHT * 0.25}, ${x2} ${ROW_HEIGHT * 0.25}, ${x2} ${ROW_HEIGHT / 2}`
+          : `M ${x1} ${ROW_HEIGHT / 2} C ${x1} ${ROW_HEIGHT * 0.75}, ${x2} ${ROW_HEIGHT * 0.75}, ${x2} ${ROW_HEIGHT}`;
+        return (
+          <path
+            key={`c-${i}`}
+            d={d}
+            stroke={c.color}
+            strokeWidth={STROKE_WIDTH}
+            fill="none"
+            strokeLinecap="round"
+          />
+        );
+      })}
+
+      {/* Commit node circle */}
+      <circle
+        cx={data.nodeRail * RAIL_WIDTH + RAIL_WIDTH / 2}
+        cy={ROW_HEIGHT / 2}
+        r={data.hasRefs ? NODE_RADIUS + 1 : NODE_RADIUS}
+        fill={data.nodeColor}
+        stroke="rgb(var(--color-bg-elevated))"
+        strokeWidth={data.hasRefs ? 2 : 1.5}
+      />
     </svg>
   );
 }
 
-export default memo(GitGraph);
+export default memo(GitGraphCell);

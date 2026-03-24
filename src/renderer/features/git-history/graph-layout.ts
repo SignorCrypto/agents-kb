@@ -15,10 +15,34 @@ export interface GraphEdge {
   color: string;
 }
 
+export interface RowVertical {
+  rail: number;
+  color: string;
+  top: boolean;   // line enters from top of row
+  bottom: boolean; // line exits to bottom of row
+}
+
+export interface RowCurve {
+  fromRail: number;
+  toRail: number;
+  color: string;
+  arrival?: boolean; // true = curve arrives from above into this row's node
+}
+
+export interface RowGraphData {
+  nodeRail: number;
+  nodeColor: string;
+  hasRefs: boolean;
+  verticals: RowVertical[];
+  curves: RowCurve[];
+  maxRail: number; // max rail with content at this specific row
+}
+
 export interface GraphLayout {
   nodes: GraphNode[];
   edges: GraphEdge[];
   maxRail: number;
+  rowGraphData: RowGraphData[];
 }
 
 // Colors that work well on both light and dark backgrounds
@@ -46,7 +70,7 @@ function getRailColor(rail: number): string {
  * branch stays on rail 0.
  */
 export function computeGraphLayout(commits: GitCommit[]): GraphLayout {
-  if (commits.length === 0) return { nodes: [], edges: [], maxRail: 0 };
+  if (commits.length === 0) return { nodes: [], edges: [], maxRail: 0, rowGraphData: [] };
 
   const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
@@ -156,5 +180,65 @@ export function computeGraphLayout(commits: GitCommit[]): GraphLayout {
     }
   }
 
-  return { nodes, edges, maxRail };
+  // ── Pass 3: compute per-row graph data for dynamic-width rendering ───────
+
+  const rowGraphData: RowGraphData[] = nodes.map((node) => ({
+    nodeRail: node.rail,
+    nodeColor: node.color,
+    hasRefs: node.commit.refs.length > 0,
+    verticals: [],
+    curves: [],
+    maxRail: node.rail,
+  }));
+
+  function mergeVertical(data: RowGraphData, rail: number, color: string, top: boolean, bottom: boolean) {
+    const existing = data.verticals.find((v) => v.rail === rail);
+    if (existing) {
+      existing.top = existing.top || top;
+      existing.bottom = existing.bottom || bottom;
+    } else {
+      data.verticals.push({ rail, color, top, bottom });
+      if (rail > data.maxRail) data.maxRail = rail;
+    }
+  }
+
+  for (const edge of edges) {
+    const { fromRow, fromRail, toRow, toRail, color } = edge;
+
+    if (fromRail === toRail) {
+      // Straight vertical edge
+      mergeVertical(rowGraphData[fromRow], fromRail, color, false, true);
+      for (let r = fromRow + 1; r < toRow; r++) {
+        mergeVertical(rowGraphData[r], fromRail, color, true, true);
+      }
+      if (toRow < rowGraphData.length) {
+        mergeVertical(rowGraphData[toRow], toRail, color, true, false);
+      }
+    } else if (fromRail < toRail) {
+      // Branching out: curve departs at child row, then straight on target rail
+      rowGraphData[fromRow].curves.push({ fromRail, toRail, color });
+      rowGraphData[fromRow].maxRail = Math.max(rowGraphData[fromRow].maxRail, fromRail, toRail);
+      for (let r = fromRow + 1; r < toRow; r++) {
+        mergeVertical(rowGraphData[r], toRail, color, true, true);
+      }
+      if (toRow < rowGraphData.length) {
+        mergeVertical(rowGraphData[toRow], toRail, color, true, false);
+      }
+    } else {
+      // Merging in: straight on source rail, then curve arrives at parent row
+      mergeVertical(rowGraphData[fromRow], fromRail, color, false, true);
+      for (let r = fromRow + 1; r < toRow; r++) {
+        mergeVertical(rowGraphData[r], fromRail, color, true, true);
+      }
+      if (toRow < rowGraphData.length) {
+        rowGraphData[toRow].curves.push({ fromRail, toRail, color, arrival: true });
+        rowGraphData[toRow].maxRail = Math.max(rowGraphData[toRow].maxRail, fromRail, toRail);
+      }
+    }
+  }
+
+  // Compute actual maxRail from nodes (excludes phantom lane allocations)
+  const actualMaxRail = nodes.reduce((max, n) => Math.max(max, n.rail), 0);
+
+  return { nodes, edges, maxRail: actualMaxRail, rowGraphData };
 }
