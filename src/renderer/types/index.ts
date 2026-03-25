@@ -122,6 +122,7 @@ export interface ElectronAPI {
   onJobNeedsInput: (callback: (data: { jobId: string; question: PendingQuestion }) => void) => () => void;
   onJobError: (callback: (data: { jobId: string; error: string }) => void) => () => void;
   onJobComplete: (callback: (data: { jobId: string }) => void) => () => void;
+  onJobFocus: (callback: (data: { jobId: string }) => void) => () => void;
 }
 
 declare global {

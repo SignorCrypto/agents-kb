@@ -243,6 +243,10 @@ export const useKanbanStore = create<KanbanState>((set, get) => ({
       }));
     });
 
+    api.onJobFocus(({ jobId }) => {
+      get().selectJob(jobId);
+    });
+
     api.onJobComplete(async ({ jobId }) => {
       const state = get();
       set({

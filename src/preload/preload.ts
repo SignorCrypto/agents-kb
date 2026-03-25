@@ -182,6 +182,11 @@ const api: ElectronAPI = {
     ipcRenderer.on('job:complete', handler);
     return () => ipcRenderer.removeListener('job:complete', handler);
   },
+  onJobFocus: (callback) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: Parameters<typeof callback>[0]) => callback(data);
+    ipcRenderer.on('job:focus', handler);
+    return () => ipcRenderer.removeListener('job:focus', handler);
+  },
 };
 
 contextBridge.exposeInMainWorld('electronAPI', api);
