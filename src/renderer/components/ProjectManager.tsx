@@ -698,6 +698,7 @@ export function ProjectManager() {
           const totalJobs = stats ? stats.counts.planning + stats.counts.development + stats.counts.done : 0;
           const isDetailOpen = detailProjectId === project.id;
           const branches = (branchStatuses.get(project.id) || []).filter((b) => b.isCurrent);
+          const projectColor = getProjectColor(project.color);
           return (
             <div
               key={project.id}
@@ -708,19 +709,20 @@ export function ProjectManager() {
               onDragLeave={() => { if (dragOverId === project.id) { setDragOverId(null); setDragOverPosition(null); } }}
               onDrop={(e) => handleDrop(e, project.id)}
               onClick={() => selectProject(project.id)}
-              className={`group rounded-lg cursor-grab active:cursor-grabbing transition-all duration-150 px-2.5 py-2 ${isSelected
-                  ? 'bg-selected-bg/80'
+              style={isSelected ? { backgroundColor: projectColor + '0F' } : undefined}
+              className={`group rounded-md cursor-grab active:cursor-grabbing transition-all duration-150 px-2 py-1.5 ${isSelected
+                  ? ''
                   : 'hover:bg-surface-tertiary/60'
                 } ${isDragOver && dragOverPosition === 'above' ? 'ring-t-2 ring-active-indicator' : ''}
                 ${isDragOver && dragOverPosition === 'below' ? 'ring-b-2 ring-active-indicator' : ''}`}
             >
-              {/* Primary row: name + info + notification */}
+              {/* Primary row: name + actions + notification */}
               <div className="flex items-center gap-1.5 min-w-0">
                 <span
                   className="inline-block w-2 h-2 rounded-full shrink-0"
-                  style={{ backgroundColor: getProjectColor(project.color) }}
+                  style={{ backgroundColor: projectColor }}
                 />
-                <span className={`text-[13px] font-medium truncate min-w-0 transition-colors ${isSelected ? 'text-content-primary' : ''
+                <span className={`text-[13px] font-medium truncate min-w-0 flex-1 transition-colors ${isSelected ? 'text-content-primary' : ''
                   }`}>
                   {project.name}
                 </span>
@@ -761,29 +763,12 @@ export function ProjectManager() {
                     <circle cx="7" cy="4.3" r="0.01" strokeWidth="2" />
                   </svg>
                 </button>
-                <span className="flex-1" />
                 {stats?.hasNotification && <NotificationBadge size="sm" />}
               </div>
 
-              {/* Job counters row */}
-              {totalJobs > 0 && (
-                <div className="flex items-center gap-1.5 mt-1.5 pl-[22px]">
-                  {COLUMN_ORDER.map((col) => {
-                    const count = stats!.counts[col];
-                    if (count === 0) return null;
-                    return (
-                      <span key={col} className="flex items-center gap-0.5">
-                        <span className={`inline-block w-1.5 h-1.5 rounded-full ${COLUMN_DOT_CLASSES[col]}`} />
-                        <span className="text-[10px] tabular-nums text-content-tertiary leading-none">{count}</span>
-                      </span>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* Git branch row */}
-              {branches.length > 0 && (
-                <div className="flex flex-wrap gap-1 mt-1 pl-[22px]">
+              {/* Metadata row: branch badge + job counters */}
+              {(branches.length > 0 || totalJobs > 0) && (
+                <div className="flex items-center gap-1.5 mt-0.5 pl-[18px] min-w-0">
                   {branches.map((b) => {
                     const isUnpublished = !b.hasUpstream;
                     const canPush = b.ahead > 0 || isUnpublished;
@@ -810,14 +795,14 @@ export function ProjectManager() {
                           }
                         }}
                         title={chipTitle}
-                        className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium leading-tight transition-colors ${canPush
+                        className={`inline-flex items-center gap-0.5 px-1 py-px rounded text-[10px] font-medium leading-tight transition-colors ${canPush
                             ? 'bg-column-development/10 text-column-development hover:bg-column-development/20 cursor-pointer'
                             : isActionable
                               ? 'bg-semantic-warning/10 text-semantic-warning hover:bg-semantic-warning/20 cursor-pointer'
                               : 'text-content-tertiary bg-surface-tertiary/40'
                           }`}
                       >
-                        <span className="truncate max-w-[72px]">{b.name}</span>
+                        <span className="truncate max-w-[64px]">{b.name}</span>
                         {b.dirtyFiles > 0 && (
                           <span className="tabular-nums opacity-80 ml-px">±{b.dirtyFiles}</span>
                         )}
@@ -825,6 +810,19 @@ export function ProjectManager() {
                           <span className="tabular-nums ml-px">{b.ahead}&#8593;</span>
                         )}
                       </button>
+                    );
+                  })}
+                  {branches.length > 0 && totalJobs > 0 && (
+                    <span className="text-content-tertiary/40 text-[8px] leading-none select-none">·</span>
+                  )}
+                  {totalJobs > 0 && COLUMN_ORDER.map((col) => {
+                    const count = stats!.counts[col];
+                    if (count === 0) return null;
+                    return (
+                      <span key={col} className="flex items-center gap-px">
+                        <span className={`inline-block w-1 h-1 rounded-full ${COLUMN_DOT_CLASSES[col]}`} />
+                        <span className="text-[10px] tabular-nums text-content-tertiary leading-none">{count}</span>
+                      </span>
                     );
                   })}
                 </div>
