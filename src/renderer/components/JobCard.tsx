@@ -98,7 +98,7 @@ export const JobCard = memo(function JobCard({ job }: JobCardProps) {
               </span>
             )}
           </div>
-          <div className="flex items-center gap-1.5 ml-auto">
+          <div className="flex items-center gap-1.5 ml-auto shrink-0 whitespace-nowrap">
             {/* {job.status === 'running' && (
               <span className="relative flex h-1.5 w-1.5">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-active-ping opacity-75" />
