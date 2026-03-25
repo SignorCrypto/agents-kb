@@ -75,6 +75,7 @@ export function GitPanelCompose({ state, onClose }: GitPanelComposeProps) {
           selectedFile={state.selectedFile}
           scrollToFile={scrollToFile}
           onVisibleFileChange={handleVisibleFileChange}
+          fetchDiffForFile={state.fetchDiffForFile}
         />
       </div>
     </div>

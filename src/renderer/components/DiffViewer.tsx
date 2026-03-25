@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, memo } from 'react';
 import { useElectronAPI } from '../hooks/useElectronAPI';
 
 export interface DiffFile {
@@ -112,7 +112,7 @@ export function StatBar({ additions, deletions }: { additions: number; deletions
   );
 }
 
-export function FileSection({ file }: { file: DiffFile }) {
+export const FileSection = memo(function FileSection({ file }: { file: DiffFile }) {
   const [collapsed, setCollapsed] = useState(false);
 
   const fileName = file.path.split('/').pop() || file.path;
@@ -203,7 +203,7 @@ export function FileSection({ file }: { file: DiffFile }) {
       )}
     </div>
   );
-}
+});
 
 interface DiffViewerProps {
   jobId: string;

@@ -1,5 +1,5 @@
-import { useMemo, useEffect, useRef, useCallback } from 'react';
-import { parseDiff, FileSection } from '../../components/DiffViewer';
+import { useEffect, useRef, useCallback } from 'react';
+import { LazyFileSection } from './LazyFileSection';
 import type { ChangedFile } from '../../types/index';
 
 interface FileDiffPanelProps {
@@ -9,6 +9,7 @@ interface FileDiffPanelProps {
   selectedFile: string | null;
   scrollToFile: { path: string; key: number } | null;
   onVisibleFileChange: (filePath: string) => void;
+  fetchDiffForFile: (file: ChangedFile) => void;
 }
 
 export function FileDiffPanel({
@@ -18,20 +19,12 @@ export function FileDiffPanel({
   selectedFile,
   scrollToFile,
   onVisibleFileChange,
+  fetchDiffForFile,
 }: FileDiffPanelProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const isScrollingToRef = useRef(false);
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
-
-  // Memoize parsed diffs so parseDiff isn't called on every render
-  const parsedDiffs = useMemo(() => {
-    const map = new Map<string, ReturnType<typeof parseDiff>>();
-    for (const [path, raw] of allDiffs) {
-      map.set(path, parseDiff(raw));
-    }
-    return map;
-  }, [allDiffs]);
 
   // Callback ref for file sections
   const setSectionRef = useCallback((path: string, el: HTMLDivElement | null) => {
@@ -42,7 +35,7 @@ export function FileDiffPanel({
     }
   }, []);
 
-  // IntersectionObserver for scroll-sync (scroll right panel → highlight left panel)
+  // IntersectionObserver for scroll-sync (scroll right panel -> highlight left panel)
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container || changedFiles.length === 0) return;
@@ -83,7 +76,7 @@ export function FileDiffPanel({
     return () => observer.disconnect();
   }, [changedFiles, onVisibleFileChange, allDiffs]);
 
-  // scrollIntoView when scrollToFile changes (click left panel → scroll right)
+  // scrollIntoView when scrollToFile changes (click left panel -> scroll right)
   useEffect(() => {
     if (!scrollToFile) return;
 
@@ -127,50 +120,16 @@ export function FileDiffPanel({
   return (
     <div ref={scrollContainerRef} className="flex-1 overflow-y-auto min-h-0">
       <div className="p-3 space-y-1.5">
-        {changedFiles.map((file) => {
-          const diff = allDiffs.get(file.path);
-          const files = parsedDiffs.get(file.path);
-          const hasDiff = diff !== undefined;
-
-          return (
-            <div
-              key={file.path}
-              data-file-path={file.path}
-              ref={(el) => setSectionRef(file.path, el)}
-            >
-              {!hasDiff ? (
-                // Per-file skeleton — fixed height prevents layout shift when diff loads
-                <div className="border border-chrome-subtle/50 rounded-md overflow-hidden">
-                  <div className="flex items-center gap-2 px-2.5 py-2 bg-surface-tertiary/60">
-                    <svg className="animate-spin h-3 w-3 shrink-0 text-content-tertiary" viewBox="0 0 16 16" fill="none">
-                      <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" opacity="0.3" />
-                      <path d="M14 8a6 6 0 00-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                    </svg>
-                    <span className="text-[11px] font-mono text-content-tertiary truncate">{file.path}</span>
-                  </div>
-                  {/* Skeleton diff lines — stabilize layout height */}
-                  <div className="px-3 py-2 space-y-1.5">
-                    <div className="h-2.5 w-[60%] rounded bg-surface-tertiary/50 animate-pulse" />
-                    <div className="h-2.5 w-[80%] rounded bg-surface-tertiary/40 animate-pulse" style={{ animationDelay: '75ms' }} />
-                    <div className="h-2.5 w-[45%] rounded bg-surface-tertiary/30 animate-pulse" style={{ animationDelay: '150ms' }} />
-                    <div className="h-2.5 w-[70%] rounded bg-surface-tertiary/40 animate-pulse" style={{ animationDelay: '225ms' }} />
-                  </div>
-                </div>
-              ) : files && files.length > 0 ? (
-                // Render all parsed sections for this file
-                files.map((f, i) => <FileSection key={i} file={f} />)
-              ) : (
-                // No changes to display for this file
-                <div className="border border-chrome-subtle/50 rounded-md overflow-hidden">
-                  <div className="flex items-center gap-2 px-2.5 py-2 bg-surface-tertiary/60">
-                    <span className="text-[11px] font-mono text-content-tertiary truncate">{file.path}</span>
-                    <span className="text-[10px] text-content-tertiary ml-auto">No changes</span>
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })}
+        {changedFiles.map((file) => (
+          <LazyFileSection
+            key={file.path}
+            file={file}
+            rawDiff={allDiffs.get(file.path)}
+            onFetchDiff={fetchDiffForFile}
+            onSectionRef={setSectionRef}
+            scrollRoot={scrollContainerRef}
+          />
+        ))}
       </div>
     </div>
   );

@@ -48,6 +48,7 @@ export interface GitPanelActions {
   push: () => Promise<void>;
   deleteBranch: () => Promise<void>;
   refreshFiles: () => Promise<void>;
+  fetchDiffForFile: (file: ChangedFile) => void;
 }
 
 export function useGitPanel(
@@ -200,52 +201,68 @@ export function useGitPanel(
     return () => clearInterval(interval);
   }, [phase, runningJobs.length, refreshFiles]);
 
-  // Fetch diffs: initial batch in parallel, then remaining sequentially
-  useEffect(() => {
-    if (changedFiles.length === 0) {
-      setAllDiffs(new Map());
-      return;
-    }
+  // Track in-flight diff requests to avoid duplicates
+  const inFlightDiffsRef = useRef(new Set<string>());
+  const allDiffsRef = useRef(allDiffs);
+  allDiffsRef.current = allDiffs;
 
-    let cancelled = false;
-    setLoadingDiffs(true);
-    setAllDiffs(new Map());
+  // On-demand diff fetcher — called by LazyFileSection when it enters the viewport
+  const fetchDiffForFile = useCallback(
+    (file: ChangedFile) => {
+      // Skip if already fetched or in-flight (use ref to avoid stale closure)
+      if (allDiffsRef.current.has(file.path) || inFlightDiffsRef.current.has(file.path)) return;
 
-    const INITIAL_BATCH = 3;
-
-    const fetchDiff = (file: ChangedFile) =>
+      inFlightDiffsRef.current.add(file.path);
       api
         .gitDiffFile(projectId, file.path, file.status === 'untracked')
         .then((diff) => {
-          if (!cancelled) {
-            setAllDiffs((prev) => {
-              const next = new Map(prev);
-              next.set(file.path, diff);
-              return next;
-            });
-          }
+          setAllDiffs((prev) => {
+            const next = new Map(prev);
+            next.set(file.path, diff);
+            return next;
+          });
         })
-        .catch(() => {});
+        .catch(() => {})
+        .finally(() => {
+          inFlightDiffsRef.current.delete(file.path);
+        });
+    },
+    [api, projectId],
+  );
 
-    (async () => {
-      // Phase 1: load initial batch in parallel to fill the viewport fast
-      const initialFiles = changedFiles.slice(0, INITIAL_BATCH);
-      await Promise.allSettled(initialFiles.map(fetchDiff));
+  // Prune stale diffs when changedFiles changes & eagerly fetch initial batch
+  useEffect(() => {
+    if (changedFiles.length === 0) {
+      setAllDiffs(new Map());
+      inFlightDiffsRef.current.clear();
+      return;
+    }
 
-      // Phase 2: load remaining files sequentially (top-to-bottom, fewer re-renders)
-      const remainingFiles = changedFiles.slice(INITIAL_BATCH);
-      for (const file of remainingFiles) {
-        if (cancelled) break;
-        await fetchDiff(file);
+    // Prune diffs for files that are no longer in the changed list
+    const currentPaths = new Set(changedFiles.map((f) => f.path));
+    setAllDiffs((prev) => {
+      let pruned = false;
+      for (const key of prev.keys()) {
+        if (!currentPaths.has(key)) {
+          pruned = true;
+          break;
+        }
       }
+      if (!pruned) return prev;
+      const next = new Map<string, string>();
+      for (const [k, v] of prev) {
+        if (currentPaths.has(k)) next.set(k, v);
+      }
+      return next;
+    });
 
-      if (!cancelled) setLoadingDiffs(false);
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [api, projectId, changedFiles]);
+    // Eagerly fetch first 3 files to fill the viewport
+    const INITIAL_BATCH = 3;
+    const initialFiles = changedFiles.slice(0, INITIAL_BATCH);
+    for (const file of initialFiles) {
+      fetchDiffForFile(file);
+    }
+  }, [changedFiles, fetchDiffForFile]);
 
   // Actions
   const toggleFile = useCallback((filePath: string) => {
@@ -413,5 +430,6 @@ export function useGitPanel(
     push,
     deleteBranch,
     refreshFiles,
+    fetchDiffForFile,
   };
 }
