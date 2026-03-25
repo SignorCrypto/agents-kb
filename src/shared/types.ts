@@ -439,6 +439,7 @@ export interface FollowUp {
   timestamp: string;
   title?: string;
   rolledBack?: boolean;
+  summaryText?: string;
 }
 
 export interface DraftImage {
@@ -495,6 +496,7 @@ export interface Job {
   pendingQuestion?: PendingQuestion;
   planText?: string;
   summaryText?: string;
+  originalSummaryText?: string;
   error?: string;
   erroredAt?: string;
   branch?: string;

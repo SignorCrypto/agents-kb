@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useKanbanStore } from '../hooks/useKanbanStore';
 import { XIcon } from './Icons';
 import { CopyButton } from './CopyButton';
+import { ResponseSection } from './ResponseSection';
 
 function formatTimestamp(iso: string): string {
   const d = new Date(iso);
@@ -22,7 +23,6 @@ export function PromptHistoryDialog() {
   const setPromptHistoryJobId = useKanbanStore((s) => s.setPromptHistoryJobId);
   const jobs = useKanbanStore((s) => s.jobs);
   const dialogRef = useRef<HTMLDivElement>(null);
-
   const job = jobs.find((j) => j.id === promptHistoryJobId);
 
   useEffect(() => {
@@ -36,124 +36,84 @@ export function PromptHistoryDialog() {
   if (!job) return null;
 
   const followUps = job.followUps?.filter((f) => !f.rolledBack) || [];
-  const totalEntries = 1 + followUps.length;
+  const originalResponse = (followUps.length > 0 ? job.originalSummaryText : job.summaryText) || '';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-surface-overlay/50 backdrop-blur-[2px]"
+        className="absolute inset-0 bg-surface-overlay/60 backdrop-blur-[3px]"
         onClick={() => setPromptHistoryJobId(null)}
       />
 
-      {/* Dialog */}
       <div
         ref={dialogRef}
-        className="relative bg-surface-elevated rounded-xl shadow-2xl border border-chrome/50 w-full max-w-xl mx-4 max-h-[80vh] flex flex-col overflow-hidden"
-        style={{ animation: 'dialogIn 0.18s ease-out' }}
+        className="relative bg-surface-elevated rounded-2xl shadow-2xl border border-chrome/40 w-full max-w-2xl mx-4 max-h-[85vh] flex flex-col overflow-hidden"
+        style={{ animation: 'dialogIn 0.2s ease-out' }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-chrome-subtle/40">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-7 h-7 rounded-lg bg-surface-tertiary/80 flex items-center justify-center shrink-0">
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-content-secondary">
-                <path d="M2 4h12M2 8h8M2 12h10" />
-              </svg>
-            </div>
-            <div className="min-w-0">
-              <h2 className="text-sm font-semibold text-content-primary truncate">
-                Prompt History
-              </h2>
-              <p className="text-[10px] text-content-tertiary mt-0.5">
-                {totalEntries} {totalEntries === 1 ? 'prompt' : 'prompts'}
-              </p>
-            </div>
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-chrome-subtle/30">
+          <div className="min-w-0 pr-6">
+            <h2 className="text-[13px] font-semibold text-content-primary truncate">
+              {job.title || 'Conversation'}
+            </h2>
+            <p className="text-[10px] text-content-tertiary mt-0.5">
+              {1 + followUps.length} {followUps.length === 0 ? 'turn' : 'turns'} &middot; {formatTimestamp(job.createdAt)}
+            </p>
           </div>
           <button
             onClick={() => setPromptHistoryJobId(null)}
-            className="w-7 h-7 flex items-center justify-center rounded-lg text-content-tertiary hover:text-content-primary hover:bg-surface-tertiary transition-colors"
+            className="absolute top-3 right-3.5 w-7 h-7 flex items-center justify-center rounded-lg text-content-tertiary hover:text-content-primary hover:bg-surface-tertiary/60 transition-colors"
           >
             <XIcon size={14} />
           </button>
         </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto px-5 py-4">
-          <div className="relative">
-            {/* Timeline line */}
-            {followUps.length > 0 && (
-              <div className="absolute left-[11px] top-6 bottom-4 w-px bg-chrome-subtle/60" />
-            )}
+        {/* Chat thread */}
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          {/* Original */}
+          <PromptBubble label="You" timestamp={formatTimestamp(job.createdAt)} text={job.prompt} />
+          {originalResponse && <ResponseSection text={originalResponse} />}
 
-            {/* Original prompt */}
-            <div className="relative flex gap-3.5 pb-5">
-              {/* Timeline dot */}
-              <div className="relative z-10 mt-1.5 shrink-0">
-                <div className="w-[23px] h-[23px] rounded-full bg-btn-primary flex items-center justify-center shadow-sm">
-                  <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-content-inverted">
-                    <path d="M4 8h8M8 4v8" />
-                  </svg>
-                </div>
-              </div>
-
-              {/* Content */}
-              <div className="flex-1 min-w-0 pt-0.5">
-                <div className="flex items-baseline gap-2 mb-1.5">
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-content-tertiary">
-                    Original
-                  </span>
-                  <span className="text-[10px] text-content-tertiary/60">
-                    {formatTimestamp(job.createdAt)}
-                  </span>
-                  <CopyButton text={job.prompt} className="ml-auto -my-1" />
-                </div>
-                {job.title && (
-                  <div className="text-[13px] font-semibold text-content-primary leading-snug mb-1">
-                    {job.title}
-                  </div>
-                )}
-                <div className="text-[12.5px] leading-relaxed text-content-secondary whitespace-pre-wrap break-words bg-surface-tertiary/30 rounded-lg px-3 py-2.5 border border-chrome-subtle/30">
-                  {job.prompt}
-                </div>
-              </div>
+          {/* Follow-ups */}
+          {followUps.map((f, i) => (
+            <div key={i} className="space-y-4 pt-3 border-t border-chrome-subtle/15">
+              <PromptBubble
+                label={f.title || `Follow-up #${i + 1}`}
+                timestamp={formatTimestamp(f.timestamp)}
+                text={f.prompt}
+              />
+              <ResponseSection
+                text={f.summaryText || (i === followUps.length - 1 ? job.summaryText : '') || ''}
+              />
             </div>
-
-            {/* Follow-ups */}
-            {followUps.map((f, i) => (
-              <div key={i} className="relative flex gap-3.5 pb-5 last:pb-0">
-                {/* Timeline dot */}
-                <div className="relative z-10 mt-1.5 shrink-0">
-                  <div className="w-[23px] h-[23px] rounded-full bg-surface-elevated border-2 border-chrome flex items-center justify-center">
-                    <span className="text-[9px] font-bold text-content-tertiary tabular-nums">
-                      {i + 1}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Content */}
-                <div className="flex-1 min-w-0 pt-0.5">
-                  <div className="flex items-baseline gap-2 mb-1.5">
-                    <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-content-tertiary">
-                      Follow-up #{i + 1}
-                    </span>
-                    <span className="text-[10px] text-content-tertiary/60">
-                      {formatTimestamp(f.timestamp)}
-                    </span>
-                    <CopyButton text={f.prompt} className="ml-auto -my-1" />
-                  </div>
-                  {f.title && (
-                    <div className="text-[13px] font-semibold text-content-primary leading-snug mb-1">
-                      {f.title}
-                    </div>
-                  )}
-                  <div className="text-[12.5px] leading-relaxed text-content-secondary whitespace-pre-wrap break-words bg-surface-tertiary/30 rounded-lg px-3 py-2.5 border border-chrome-subtle/30">
-                    {f.prompt}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
+          ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function PromptBubble({ label, timestamp, text }: { label: string; timestamp: string; text: string }) {
+  return (
+    <div className="group flex gap-2.5 justify-end">
+      <div className="flex-1 min-w-0 flex flex-col items-end">
+        <div className="flex items-center gap-1.5 mb-1">
+          <CopyButton text={text} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+          <span className="text-[10px] font-semibold text-content-tertiary">{label}</span>
+          <span className="text-[10px] text-content-tertiary/50">{timestamp}</span>
+        </div>
+        <div className="max-w-[85%] rounded-xl rounded-tr-sm bg-btn-primary/10 border border-btn-primary/15 px-3.5 py-2.5">
+          <p className="text-[12.5px] leading-relaxed text-content-primary whitespace-pre-wrap break-words">
+            {text}
+          </p>
+        </div>
+      </div>
+
+      {/* Avatar */}
+      <div className="w-6 h-6 rounded-full bg-btn-primary flex items-center justify-center shrink-0 mt-0.5">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" className="text-content-inverted">
+          <path d="M12 12c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm0 2c-3.33 0-10 1.67-10 5v2h20v-2c0-3.33-6.67-5-10-5z" />
+        </svg>
       </div>
     </div>
   );

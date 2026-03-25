@@ -114,3 +114,25 @@ export function BranchIcon({ size = 16, ...props }: IconProps) {
     </svg>
   );
 }
+
+export function MessagesSquareIcon({ size = 16, ...props }: IconProps) {
+  return (
+    <svg {...defaults(size, props, '0 0 24 24', 2)}>
+      <path d="M16 10a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 14.286V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+      <path d="M20 9a2 2 0 0 1 2 2v10.286a.71.71 0 0 1-1.212.502l-2.202-2.202A2 2 0 0 0 17.172 19H10a2 2 0 0 1-2-2v-1" />
+    </svg>
+  );
+}
+
+export function BotIcon({ size = 16, ...props }: IconProps) {
+  return (
+    <svg {...defaults(size, props, '0 0 24 24', 2)}>
+      <path d="M12 8V4H8" />
+      <rect width="16" height="12" x="4" y="8" rx="2" />
+      <path d="M2 14h2" />
+      <path d="M20 14h2" />
+      <path d="M15 13v2" />
+      <path d="M9 13v2" />
+    </svg>
+  );
+}

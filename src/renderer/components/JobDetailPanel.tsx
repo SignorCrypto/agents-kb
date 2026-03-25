@@ -12,7 +12,7 @@ import { ImageAttachmentBar } from './ImageAttachmentBar';
 import { formatDuration, useNow } from '../utils/duration';
 import type { Job, JobImage, JobComposerDraft, PendingQuestionDraft, JobDetailDrafts, FollowUp, AppSettings, PhaseTokenUsage, SubQuestion } from '../types/index';
 import { getProjectColor, getThinkingDisplay, normalizeEffortForThinking } from '../types/index';
-import { BrainIcon, BranchIcon, StopIcon, TrashIcon, XIcon } from './Icons';
+import { BrainIcon, BranchIcon, MessagesSquareIcon, StopIcon, TrashIcon, XIcon } from './Icons';
 import { CopyButton } from './CopyButton';
 import { PlanMarkdown } from './PlanMarkdown';
 
@@ -595,9 +595,7 @@ export function JobDetailPanel() {
               aria-label="View prompt history"
               title="View prompt history"
             >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M2 4h12M2 8h8M2 12h10" />
-              </svg>
+              <MessagesSquareIcon size={14} />
             </button>
 
             {/* Roll Back */}
@@ -777,6 +775,21 @@ export function JobDetailPanel() {
         </div>
       )}
 
+      {/* Stop button — full width, below log */}
+      {isActive && (
+        <div className="shrink-0 px-3 pb-1">
+          <button
+            onClick={handleCancel}
+            className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-semantic-error/30 text-semantic-error hover:bg-semantic-error-bg/10 transition-colors"
+            aria-label="Stop job"
+            title="Stop job"
+          >
+            <StopIcon size={14} />
+            Stop
+          </button>
+        </div>
+      )}
+
       {/* Context window fill — session-level stat above input */}
       <ContextUsageBar job={job} settings={settings} />
 
@@ -812,7 +825,6 @@ export function JobDetailPanel() {
         onAcceptPlan={handleAcceptPlan}
         onEditPlan={handleEditPlan}
         onRetry={handleRetry}
-        onCancel={handleCancel}
       />
 
       {/* Phase durations — bottom footer */}
@@ -854,7 +866,6 @@ interface ActionAreaProps {
   onAcceptPlan: () => void;
   onEditPlan: (images?: JobImage[]) => void;
   onRetry: (images?: JobImage[]) => void;
-  onCancel: () => void;
 }
 
 const ActionArea = memo(function ActionArea({
@@ -864,7 +875,7 @@ const ActionArea = memo(function ActionArea({
   followUpText, setFollowUpText, steerText, setSteerText,
   planFeedbackText, setPlanFeedbackText, retryText, setRetryText, planAction,
   steerImages, planImages, followUpImages, retryImages,
-  onRespond, onFollowUp, onSteer, onAcceptPlan, onEditPlan, onRetry, onCancel,
+  onRespond, onFollowUp, onSteer, onAcceptPlan, onEditPlan, onRetry,
 }: ActionAreaProps) {
   const submitSteer = () => { onSteer(steerImages.toJobImages()); steerImages.clearImages(); };
   const submitPlanEdit = () => { onEditPlan(planImages.toJobImages()); planImages.clearImages(); };
@@ -919,18 +930,9 @@ const ActionArea = memo(function ActionArea({
           <div className="flex items-center gap-2">
             <ImageAttachmentBar images={steerImages.images} onRemove={steerImages.removeImage} onAddFiles={steerImages.addFiles} compact />
             <button
-              onClick={onCancel}
-              className="ml-auto shrink-0 flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-semantic-error/30 text-semantic-error hover:bg-semantic-error-bg/10 transition-colors"
-              aria-label="Stop job"
-              title="Stop job"
-            >
-              <StopIcon size={14} />
-              Stop
-            </button>
-            <button
               onClick={submitSteer}
               disabled={!steerText.trim()}
-              className="shrink-0 flex items-center justify-center gap-1.5 px-4 py-1.5 text-sm rounded-lg bg-btn-primary text-content-inverted hover:bg-btn-primary-hover disabled:opacity-40 transition-colors"
+              className="ml-auto shrink-0 flex items-center justify-center gap-1.5 px-4 py-1.5 text-sm rounded-lg bg-btn-primary text-content-inverted hover:bg-btn-primary-hover disabled:opacity-40 transition-colors"
             >
               Steer
             </button>
@@ -1075,20 +1077,11 @@ const ActionArea = memo(function ActionArea({
                     Back
                   </button>
                 )}
-                <button
-                  onClick={onCancel}
-                  className="ml-auto shrink-0 flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-semantic-error/30 text-semantic-error hover:bg-semantic-error-bg/10 transition-colors"
-                  aria-label="Stop job"
-                  title="Stop job"
-                >
-                  <StopIcon size={14} />
-                  Stop
-                </button>
                 {isLastStep ? (
                   <button
                     onClick={onRespond}
                     disabled={!isCurrentAnswered}
-                    className="px-4 py-1.5 text-sm rounded-lg bg-btn-primary text-content-inverted hover:bg-btn-primary-hover disabled:opacity-40 transition-colors"
+                    className="ml-auto px-4 py-1.5 text-sm rounded-lg bg-btn-primary text-content-inverted hover:bg-btn-primary-hover disabled:opacity-40 transition-colors"
                   >
                     Send
                   </button>
@@ -1096,7 +1089,7 @@ const ActionArea = memo(function ActionArea({
                   <button
                     onClick={() => setCurrentQuestionStep((s) => s + 1)}
                     disabled={!isCurrentAnswered}
-                    className="px-4 py-1.5 text-sm rounded-lg bg-btn-primary text-content-inverted hover:bg-btn-primary-hover disabled:opacity-40 transition-colors"
+                    className="ml-auto px-4 py-1.5 text-sm rounded-lg bg-btn-primary text-content-inverted hover:bg-btn-primary-hover disabled:opacity-40 transition-colors"
                   >
                     Next
                   </button>
@@ -1184,15 +1177,6 @@ const ActionArea = memo(function ActionArea({
                 readOnly={!!pq.multiSelect && selectedOptions.size > 0}
                 className="w-full px-3 py-1.5 text-sm rounded-lg border border-chrome bg-surface-elevated focus:outline-none focus:ring-2 focus:ring-focus-ring/40"
               />
-              <button
-                onClick={onCancel}
-                className="shrink-0 flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-semantic-error/30 text-semantic-error hover:bg-semantic-error-bg/10 transition-colors"
-                aria-label="Stop job"
-                title="Stop job"
-              >
-                <StopIcon size={14} />
-                Stop
-              </button>
               <button
                 onClick={onRespond}
                 disabled={pq.multiSelect

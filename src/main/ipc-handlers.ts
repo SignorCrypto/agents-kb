@@ -629,7 +629,20 @@ async function startClaudeSession(
   });
 
   session.on('summary-text', (text: string) => {
-    const updated = updateJob(job.id, { summaryText: text });
+    const current = getJob(job.id);
+    const updates: Partial<Job> = { summaryText: text };
+
+    // Also store the summary on the latest follow-up (if any)
+    if (current?.followUps?.length) {
+      const updatedFollowUps = [...current.followUps];
+      updatedFollowUps[updatedFollowUps.length - 1] = {
+        ...updatedFollowUps[updatedFollowUps.length - 1],
+        summaryText: text,
+      };
+      updates.followUps = updatedFollowUps;
+    }
+
+    const updated = updateJob(job.id, updates);
     if (updated) {
       sendToRenderer(getWindow, 'job:status-changed', updated);
     }
@@ -1860,6 +1873,21 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     const followUps = [...(job.followUps || []), { prompt, timestamp: now }];
     const project = getProjects().find(p => p.id === job.projectId);
 
+    // Snapshot the current summaryText before it gets cleared
+    const snapshotUpdates: Partial<Job> = {};
+    if (job.summaryText) {
+      if (!job.followUps?.length) {
+        // First follow-up: save original prompt's response
+        snapshotUpdates.originalSummaryText = job.summaryText;
+      } else {
+        // Subsequent follow-ups: ensure previous follow-up has its summary
+        const lastIdx = job.followUps.length - 1;
+        if (!job.followUps[lastIdx].summaryText) {
+          followUps[lastIdx] = { ...followUps[lastIdx], summaryText: job.summaryText };
+        }
+      }
+    }
+
     appendOutput(jobId, {
       timestamp: now,
       type: 'system',
@@ -1874,6 +1902,7 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     }
 
     const updated = updateJob(jobId, {
+      ...snapshotUpdates,
       column: 'development',
       status: 'running',
       completedAt: undefined,
