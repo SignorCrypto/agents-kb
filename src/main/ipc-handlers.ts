@@ -556,6 +556,17 @@ async function startClaudeSession(
     batchedSender.pushOutput(job.id, entry);
   });
 
+  // Live context usage updates — throttle to at most once per second
+  let lastContextPush = 0;
+  session.on('context-update', (ctx: { inputTokens: number; contextWindow: number }) => {
+    const now = Date.now();
+    if (now - lastContextPush < 1000) return;
+    lastContextPush = now;
+    const contextUsage = { used: ctx.inputTokens, limit: ctx.contextWindow };
+    const updated = updateJob(job.id, { contextUsage });
+    if (updated) sendToRenderer(getWindow, 'job:status-changed', updated);
+  });
+
   // Defer persistence to the batch flush cycle — aligns disk writes with IPC interval
   const unsubFlush = batchedSender.onFlush((flushedJobId, entries, messages) => {
     if (flushedJobId !== job.id) return;

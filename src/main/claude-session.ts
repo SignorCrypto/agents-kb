@@ -508,6 +508,12 @@ export class ClaudeSession extends EventEmitter {
     return this.queryInstance !== null && !this.killed;
   }
 
+  private emitContextUpdate(): void {
+    if (this._contextWindow > 0 && this._inputTokens > 0) {
+      this.emit("context-update", { inputTokens: this._inputTokens, contextWindow: this._contextWindow });
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Message iteration loop (replaces PTY onData + handleStdout + handleMessage)
   // ---------------------------------------------------------------------------
@@ -703,12 +709,11 @@ export class ClaudeSession extends EventEmitter {
     if (usage) {
       const inputTotal =
         (usage.input_tokens || 0) + (usage.cache_read_input_tokens || 0) + (usage.cache_creation_input_tokens || 0);
-      if (inputTotal > this._inputTokens) {
-        this._inputTokens = inputTotal;
-      }
+      this._inputTokens = inputTotal;
       if (usage.output_tokens && usage.output_tokens > this._currentMsgOutputTokens) {
         this._currentMsgOutputTokens = usage.output_tokens;
       }
+      this.emitContextUpdate();
     }
 
     // When new blocks appear, finalize previous tool blocks
@@ -944,6 +949,7 @@ export class ClaudeSession extends EventEmitter {
       this._inputTokens = inputTotal;
       this._outputTokens = resultUsage.output_tokens || 0;
       this._currentMsgOutputTokens = 0;
+      this.emitContextUpdate();
     }
 
     // Extract context window size from modelUsage (max across all models used)
