@@ -938,47 +938,8 @@ async function runClaudeEditTask(
 }
 
 /**
- * Resume a completed session to call rewindFiles().
- * Opens a temporary SDK session with the original sessionId, calls rewind, then closes.
- */
-async function rewindViaResume(
-  projectPath: string,
-  sessionId: string,
-  userMessageId: string,
-  options?: { dryRun?: boolean },
-): Promise<{ canRewind: boolean; error?: string; filesChanged?: string[]; insertions?: number; deletions?: number }> {
-  const env = { ...process.env };
-  delete env.CLAUDECODE;
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sdkOptions: Record<string, any> = withProjectScopedClaudeCodeOptions({
-    cwd: projectPath,
-    permissionMode: 'plan',
-    enableFileCheckpointing: true,
-    resume: sessionId,
-    env,
-    settingSources: ['user', 'project'],
-  });
-
-
-  let q;
-  try {
-    q = sdkQuery({ prompt: '', options: sdkOptions });
-    const result = await q.rewindFiles(userMessageId, options);
-    return result;
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { canRewind: false, error: msg };
-  } finally {
-    if (q) {
-      try { q.close(); } catch { /* already closed */ }
-    }
-  }
-}
-
-/**
  * Synchronous rollback used by jobs:delete with rollback.
- * Uses SDK rewindFiles() as primary mechanism, silent model-assisted rollback as fallback.
+ * Uses model-assisted rollback via step snapshots.
  * For the visible (monitored) rollback flow, see jobs:reject-job handler.
  */
 async function rollbackJobToSnapshot(
@@ -988,9 +949,8 @@ async function rollbackJobToSnapshot(
   allJobs: Job[],
 ): Promise<void> {
   const stepSnapshots = job.stepSnapshots || [];
-  const userMessageUuids = job.userMessageUuids || [];
 
-  if (stepSnapshots.length === 0 && userMessageUuids.length === 0) {
+  if (stepSnapshots.length === 0) {
     return; // nothing to roll back
   }
 
@@ -1003,23 +963,7 @@ async function rollbackJobToSnapshot(
   }
 
   const targetLabel = targetIndex === 0 ? 'Original' : getStepLabel(targetIndex);
-
-  // Primary: try SDK rewindFiles() via session resume
-  if (job.sessionId && userMessageUuids.length > targetIndex) {
-    const targetUuid = userMessageUuids[targetIndex];
-    console.log(`[rollback] SDK rewind: sessionId=${job.sessionId}, targetUuid=${targetUuid}, targetIndex=${targetIndex}`);
-    const result = await rewindViaResume(project.path, job.sessionId, targetUuid);
-    if (result.canRewind) {
-      console.log(`[rollback] SDK rewind succeeded:`, result);
-      return;
-    }
-    console.log(`[rollback] SDK rewind failed, falling back to model-assisted:`, result.error);
-  }
-
-  // Fallback: model-assisted rollback using step snapshots
-  if (stepSnapshots.length > 0) {
-    await rollbackWithModel(job, project.path, targetIndex, targetLabel);
-  }
+  await rollbackWithModel(job, project.path, targetIndex, targetLabel);
 }
 
 async function rollbackWithModel(job: Job, projectPath: string, targetIndex: number, targetLabel: string): Promise<void> {
@@ -2027,46 +1971,24 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     return null;
   });
 
-  // === File Rewind (SDK checkpointing) ===
+  // === File Rewind (SDK checkpointing — active sessions only) ===
 
   ipcMain.handle('jobs:rewind-preview', async (_event, jobId: string, userMessageId?: string) => {
     const session = sessionManager.get(jobId);
-    if (session) {
-      const messages = session.userMessages;
-      const targetId = userMessageId || messages[0];
-      if (!targetId) return { canRewind: false, error: 'No user messages to rewind to' };
-      return session.rewindFiles(targetId, { dryRun: true });
-    }
-
-    // Fallback: resume completed session for rewind preview
-    const job = getJob(jobId);
-    if (!job?.sessionId) return { canRewind: false, error: 'No session to rewind' };
-    const uuids = job.userMessageUuids || [];
-    const targetId = userMessageId || uuids[0];
+    if (!session) return { canRewind: false, error: 'No active session to rewind' };
+    const messages = session.userMessages;
+    const targetId = userMessageId || messages[0];
     if (!targetId) return { canRewind: false, error: 'No user messages to rewind to' };
-    const project = getProjects().find(p => p.id === job.projectId);
-    if (!project) return { canRewind: false, error: 'Project not found' };
-    return rewindViaResume(project.path, job.sessionId, targetId, { dryRun: true });
+    return session.rewindFiles(targetId, { dryRun: true });
   });
 
   ipcMain.handle('jobs:rewind-files', async (_event, jobId: string, userMessageId?: string) => {
     const session = sessionManager.get(jobId);
-    if (session) {
-      const messages = session.userMessages;
-      const targetId = userMessageId || messages[0];
-      if (!targetId) return { canRewind: false, error: 'No user messages to rewind to' };
-      return session.rewindFiles(targetId);
-    }
-
-    // Fallback: resume completed session for rewind
-    const job = getJob(jobId);
-    if (!job?.sessionId) return { canRewind: false, error: 'No session to rewind' };
-    const uuids = job.userMessageUuids || [];
-    const targetId = userMessageId || uuids[0];
+    if (!session) return { canRewind: false, error: 'No active session to rewind' };
+    const messages = session.userMessages;
+    const targetId = userMessageId || messages[0];
     if (!targetId) return { canRewind: false, error: 'No user messages to rewind to' };
-    const project = getProjects().find(p => p.id === job.projectId);
-    if (!project) return { canRewind: false, error: 'Project not found' };
-    return rewindViaResume(project.path, job.sessionId, targetId);
+    return session.rewindFiles(targetId);
   });
 
   ipcMain.handle('jobs:rewind-messages', async (_event, jobId: string) => {
@@ -2183,10 +2105,9 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     if (job.status !== 'completed') throw new Error('Job is not completed');
 
     const stepSnapshots = job.stepSnapshots || [];
-    const userMessageUuids = job.userMessageUuids || [];
 
-    // Jobs without stored snapshots or rewind points: just mark as rejected without rollback
-    if (stepSnapshots.length === 0 && userMessageUuids.length === 0) {
+    // Jobs without stored snapshots: just mark as rejected without rollback
+    if (stepSnapshots.length === 0) {
       const updated = updateJob(jobId, {
         status: 'rejected',
         rejectedAt: new Date().toISOString(),
@@ -2200,9 +2121,7 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     // Default to first (original state) if no index specified
     const targetIndex = snapshotIndex ?? 0;
     const isFullRejection = targetIndex === 0;
-    const maxRollbackIndex = stepSnapshots.length > 0
-      ? stepSnapshots.length - 1
-      : userMessageUuids.length - 1;
+    const maxRollbackIndex = stepSnapshots.length - 1;
     if (targetIndex < 0 || targetIndex > maxRollbackIndex) {
       throw new Error('Invalid snapshot index');
     }
@@ -2220,69 +2139,7 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
       throw new Error('Cannot roll back while another job on this project is running');
     }
 
-    // Primary: try SDK rewindFiles() via session resume
-    let sdkRewindSucceeded = false;
-    if (job.sessionId && userMessageUuids.length > targetIndex) {
-      const targetUuid = userMessageUuids[targetIndex];
-      console.log(`[rollback] SDK rewind: sessionId=${job.sessionId}, targetUuid=${targetUuid}, targetIndex=${targetIndex}`);
-      const result = await rewindViaResume(project.path, job.sessionId, targetUuid);
-      if (result.canRewind) {
-        console.log(`[rollback] SDK rewind succeeded:`, result);
-        // Validate that files actually changed on disk before trusting the result
-        if (stepSnapshots.length > 0) {
-          const rollbackPlan = buildRollbackTargets(
-            job,
-            targetIndex,
-            await readCurrentStates(
-              project.path,
-              Array.from(
-                new Set(stepSnapshots.flatMap((s) => s.files.map((f) => f.path))),
-              ),
-            ),
-          );
-          sdkRewindSucceeded = !rollbackPlan || rollbackPlan.targets.length === 0;
-          if (!sdkRewindSucceeded) {
-            console.log(`[rollback] SDK rewind reported success but files don't match, falling back to model-assisted`);
-          }
-        } else {
-          sdkRewindSucceeded = true;
-        }
-      } else {
-        console.log(`[rollback] SDK rewind failed, falling back to model-assisted:`, result.error);
-      }
-    }
-
-    if (sdkRewindSucceeded) {
-      // SDK rewind worked — apply post-rollback state immediately
-      if (isFullRejection) {
-        const updated = updateJob(jobId, {
-          status: 'rejected',
-          rejectedAt: new Date().toISOString(),
-        });
-        if (updated) {
-          sendToRenderer(getWindow, 'job:status-changed', updated);
-        }
-      } else {
-        const now = new Date().toISOString();
-        const updatedStepSnapshots = stepSnapshots.map(s =>
-          s.order >= targetIndex ? { ...s, rejectedAt: now } : s
-        );
-        const updatedFollowUps = (job.followUps || []).map((f, i) => {
-          const stepOrder = i + 1;
-          return stepOrder >= targetIndex ? { ...f, rolledBack: true } : f;
-        });
-        const updated = updateJob(jobId, {
-          stepSnapshots: updatedStepSnapshots,
-          followUps: updatedFollowUps,
-        });
-        if (updated) {
-          sendToRenderer(getWindow, 'job:status-changed', updated);
-        }
-      }
-      return;
-    }
-
-    // Fallback: model-assisted rollback as a visible session
+    // Model-assisted rollback as a visible session
     if (stepSnapshots.length > 0) {
       const rollbackPlan = buildRollbackTargets(
         job,
