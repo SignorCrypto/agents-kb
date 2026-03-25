@@ -252,7 +252,7 @@ export async function getBranchesStatus(projectPath: string): Promise<BranchStat
         }
       }
 
-      if (ahead > 0 || dirtyFiles > 0 || !hasUpstream) {
+      if (isCurrent || ahead > 0 || dirtyFiles > 0 || !hasUpstream) {
         results.push({ name, isCurrent, ahead, dirtyFiles, hasUpstream });
       }
     }

@@ -1161,6 +1161,18 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     return projects;
   });
 
+  ipcMain.handle('projects:refresh-git-status', async (_event, projectId: string) => {
+    const projects = getProjects();
+    const project = projects.find(p => p.id === projectId);
+    if (!project) return null;
+    const currentIsGit = await isGitRepoRoot(project.path);
+    if (project.isGitRepo !== currentIsGit) {
+      project.isGitRepo = currentIsGit;
+      updateProjects(projects);
+    }
+    return project;
+  });
+
   ipcMain.handle('projects:add', async () => {
     const win = getWindow();
     if (!win) return null;
@@ -1411,6 +1423,17 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     const project = getProjects().find(p => p.id === projectId);
     if (!project) return null;
     return listBranches(project.path);
+  });
+
+  ipcMain.handle('git:checkout', async (_event, projectId: string, branch: string) => {
+    const project = getProjects().find(p => p.id === projectId);
+    if (!project) return { success: false, error: 'Project not found' };
+    try {
+      await checkoutBranch(project.path, branch);
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Checkout failed' };
+    }
   });
 
   ipcMain.handle('git:branches-status', (_event, projectId: string) => {

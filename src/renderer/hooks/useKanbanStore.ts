@@ -243,12 +243,23 @@ export const useKanbanStore = create<KanbanState>((set, get) => ({
       }));
     });
 
-    api.onJobComplete(({ jobId }) => {
-      set((s) => ({
-        jobs: s.jobs.map(j =>
+    api.onJobComplete(async ({ jobId }) => {
+      const state = get();
+      set({
+        jobs: state.jobs.map(j =>
           j.id === jobId ? { ...j, column: 'done', status: 'completed' } : j
         ),
-      }));
+      });
+      // Re-check isGitRepo for the job's project (e.g. after git init)
+      const job = state.jobs.find(j => j.id === jobId);
+      if (job) {
+        const updated = await api.projectsRefreshGitStatus(job.projectId);
+        if (updated) {
+          set((s) => ({
+            projects: s.projects.map(p => p.id === updated.id ? updated : p),
+          }));
+        }
+      }
     });
   },
 }));

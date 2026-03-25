@@ -18,6 +18,7 @@ export interface ElectronAPI {
 
   // Projects
   projectsList: () => Promise<Project[]>;
+  projectsRefreshGitStatus: (id: string) => Promise<Project | null>;
   projectsAdd: () => Promise<Project | null>;
   projectsRename: (id: string, name: string) => Promise<Project | undefined>;
   projectsRemove: (id: string) => Promise<void>;
@@ -45,6 +46,7 @@ export interface ElectronAPI {
   gitDiffFile: (projectId: string, filePath: string, isUntracked: boolean) => Promise<string>;
   gitDiscardFile: (projectId: string, filePath: string, isUntracked: boolean) => Promise<{ success: boolean; error?: string }>;
   gitDiscardAll: (projectId: string) => Promise<{ success: boolean; error?: string }>;
+  gitCheckout: (projectId: string, branch: string) => Promise<{ success: boolean; error?: string }>;
   gitUnpushedCommits: (projectId: string, branch: string) => Promise<GitCommit[]>;
 
   // Jobs

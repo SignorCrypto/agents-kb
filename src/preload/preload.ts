@@ -4,6 +4,7 @@ import type { ElectronAPI } from '../renderer/types/index';
 const api: ElectronAPI = {
   // Projects
   projectsList: () => ipcRenderer.invoke('projects:list'),
+  projectsRefreshGitStatus: (id) => ipcRenderer.invoke('projects:refresh-git-status', id),
   projectsAdd: () => ipcRenderer.invoke('projects:add'),
   projectsRename: (id, name) => ipcRenderer.invoke('projects:rename', id, name),
   projectsRemove: (id) => ipcRenderer.invoke('projects:remove', id),
@@ -16,6 +17,7 @@ const api: ElectronAPI = {
   // Git
   gitListBranches: (projectId) => ipcRenderer.invoke('git:list-branches', projectId),
   gitBranchesStatus: (projectId) => ipcRenderer.invoke('git:branches-status', projectId),
+  gitCheckout: (projectId, branch) => ipcRenderer.invoke('git:checkout', projectId, branch),
   gitPush: (projectId, branch) => ipcRenderer.invoke('git:push', projectId, branch),
   gitDeleteBranch: (projectId, branch) => ipcRenderer.invoke('git:delete-branch', projectId, branch),
   gitCreateBranch: (projectId, newBranch, baseBranch) => ipcRenderer.invoke('git:create-branch', projectId, newBranch, baseBranch),

@@ -440,6 +440,7 @@ export function ProjectManager() {
   const setShowSkillsPanel = useKanbanStore((s) => s.setShowSkillsPanel);
   const [detailProjectId, setDetailProjectId] = useState<string | null>(null);
   const [gitHistoryProjectId, setGitHistoryProjectId] = useState<string | null>(null);
+  const [gitHistoryBranches, setGitHistoryBranches] = useState<{ branches: string[]; current: string } | null>(null);
   const [branchStatuses, setBranchStatuses] = useState<Map<string, BranchStatus[]>>(new Map());
   const [gitPanel, setGitPanel] = useState<{
     projectId: string;
@@ -494,6 +495,29 @@ export function ProjectManager() {
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
   }, [refreshAllBranchStatuses]);
+
+  // Fetch branches when git history modal opens
+  useEffect(() => {
+    if (!gitHistoryProjectId) {
+      setGitHistoryBranches(null);
+      return;
+    }
+    void api.gitListBranches(gitHistoryProjectId).then((result) => {
+      if (result) setGitHistoryBranches(result);
+    });
+  }, [gitHistoryProjectId, api]);
+
+  const handleBranchCheckout = useCallback(async (branch: string) => {
+    if (!gitHistoryProjectId) return;
+    const result = await api.gitCheckout(gitHistoryProjectId, branch);
+    if (result.success) {
+      const updated = await api.gitListBranches(gitHistoryProjectId);
+      if (updated) setGitHistoryBranches(updated);
+      void refreshProjectBranchStatus(gitHistoryProjectId);
+    } else {
+      alert(result.error || 'Failed to switch branch');
+    }
+  }, [gitHistoryProjectId, api, refreshProjectBranchStatus]);
 
   useEffect(() => {
     const previous = previousStatusesRef.current;
@@ -673,7 +697,7 @@ export function ProjectManager() {
           const stats = projectStats.get(project.id);
           const totalJobs = stats ? stats.counts.planning + stats.counts.development + stats.counts.done : 0;
           const isDetailOpen = detailProjectId === project.id;
-          const branches = branchStatuses.get(project.id) || [];
+          const branches = (branchStatuses.get(project.id) || []).filter((b) => b.isCurrent);
           return (
             <div
               key={project.id}
@@ -700,27 +724,25 @@ export function ProjectManager() {
                   }`}>
                   {project.name}
                 </span>
-                {project.isGitRepo !== false && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setGitHistoryProjectId(gitHistoryProjectId === project.id ? null : project.id);
-                    }}
-                    className={`p-0.5 rounded flex items-center justify-center transition-all shrink-0 ${gitHistoryProjectId === project.id
-                        ? 'opacity-100 text-content-secondary bg-surface-tertiary/70'
-                        : 'opacity-0 group-hover:opacity-100 text-content-tertiary hover:text-content-secondary hover:bg-surface-tertiary/50'
-                      }`}
-                    title="Git history"
-                    aria-label="Git history"
-                  >
-                    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                      <circle cx="5" cy="4" r="2" />
-                      <circle cx="5" cy="12" r="2" />
-                      <circle cx="13" cy="8" r="2" />
-                      <path d="M5 6v4M7 12h4c1.1 0 2-.9 2-2" />
-                    </svg>
-                  </button>
-                )}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setGitHistoryProjectId(gitHistoryProjectId === project.id ? null : project.id);
+                  }}
+                  className={`p-0.5 rounded flex items-center justify-center transition-all shrink-0 ${gitHistoryProjectId === project.id
+                      ? 'opacity-100 text-content-secondary bg-surface-tertiary/70'
+                      : 'opacity-0 group-hover:opacity-100 text-content-tertiary hover:text-content-secondary hover:bg-surface-tertiary/50'
+                    }`}
+                  title={project.isGitRepo === false ? 'Initialize git' : 'Git history'}
+                  aria-label={project.isGitRepo === false ? 'Initialize git' : 'Git history'}
+                >
+                  <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="5" cy="4" r="2" />
+                    <circle cx="5" cy="12" r="2" />
+                    <circle cx="13" cy="8" r="2" />
+                    <path d="M5 6v4M7 12h4c1.1 0 2-.9 2-2" />
+                  </svg>
+                </button>
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -901,7 +923,14 @@ export function ProjectManager() {
                 </button>
               </div>
               <div className="flex-1 min-h-0 flex flex-col">
-                <GitHistoryPanel projectId={project.id} />
+                <GitHistoryPanel
+                  projectId={project.id}
+                  isGitRepo={project.isGitRepo !== false}
+                  currentBranch={gitHistoryBranches?.current}
+                  branches={gitHistoryBranches?.branches}
+                  onBranchChange={handleBranchCheckout}
+                  onClose={() => setGitHistoryProjectId(null)}
+                />
               </div>
             </div>
           </div>,

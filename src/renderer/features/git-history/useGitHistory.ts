@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useElectronAPI } from '../../hooks/useElectronAPI';
 import type { GitCommit } from '../../types/index';
 
@@ -64,6 +64,16 @@ export function useGitHistory(projectId: string, branch?: string): UseGitHistory
     initializedRef.current = true;
     fetchPage(0, false);
   }
+
+  // Re-fetch when branch changes
+  const prevBranchRef = useRef(branch);
+  useEffect(() => {
+    if (prevBranchRef.current !== branch) {
+      prevBranchRef.current = branch;
+      pageRef.current = 0;
+      fetchPage(0, false);
+    }
+  }, [branch, fetchPage]);
 
   return { commits, loading, hasMore, totalCount, loadMore, refresh, error };
 }
