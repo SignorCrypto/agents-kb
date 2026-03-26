@@ -9,6 +9,7 @@ import { CheckForUpdatesButton } from './UpdateButton';
 import type { AppSettings, ShortcutBinding, ThemeMode, PreferredEditor, AccountInfo } from '../types/index';
 import { DEFAULT_SETTINGS, getEffortOptionsForThinking, getThinkingModeOptionsForModel, normalizeEffortForThinking, PERMISSION_MODE_CATALOG } from '../types/index';
 import { XIcon } from './Icons';
+import { Textarea } from './Input';
 
 const isMac =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
@@ -31,6 +32,16 @@ function eventToKeys(e: KeyboardEvent): string | null {
   if (hasAlt) parts.push('alt');
   parts.push(e.key.toLowerCase());
   return parts.join('+');
+}
+
+const MODIFIER_SHORTCUT_IDS = new Set(['switchTerminalProject', 'switchTerminalTab']);
+const MODIFIER_KEYS = new Set(['mod', 'shift', 'alt']);
+
+/** Strip trailing non-modifier key from a shortcut string, keeping only modifier prefix. */
+function stripToModifiers(keys: string): string {
+  const parts = keys.toLowerCase().split('+');
+  const modifiers = parts.filter((p) => MODIFIER_KEYS.has(p));
+  return modifiers.length > 0 ? modifiers.join('+') : keys;
 }
 
 export function SettingsDialog({ onClose }: { onClose: () => void }) {
@@ -131,6 +142,8 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     if (!recordingId) return;
 
+    const isModifierShortcut = MODIFIER_SHORTCUT_IDS.has(recordingId);
+
     const handler = (e: KeyboardEvent) => {
       e.preventDefault();
       e.stopPropagation();
@@ -138,10 +151,13 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
       const keys = eventToKeys(e);
       if (!keys) return;
 
+      // For modifier shortcuts, strip the trailing non-modifier key to save only the prefix
+      const finalKeys = isModifierShortcut ? stripToModifiers(keys) : keys;
+
       patchSettings((current) => ({
         ...current,
         shortcuts: current.shortcuts.map((s) =>
-          s.id === recordingId ? { ...s, keys } : s,
+          s.id === recordingId ? { ...s, keys: finalKeys } : s,
         ),
       }));
       setRecordingId(null);
@@ -475,16 +491,35 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
           <div className="border-t border-chrome-subtle/40" />
 
           <div className="space-y-1">
-            {local.shortcuts.map((shortcut) => (
-              <ShortcutRow
-                key={shortcut.id}
-                shortcut={shortcut}
-                isRecording={recordingId === shortcut.id}
-                onToggle={() => toggleShortcut(shortcut.id)}
-                onStartRecording={() => setRecordingId(shortcut.id)}
-                onCancelRecording={() => setRecordingId(null)}
-              />
-            ))}
+            {local.shortcuts
+              .filter((s) => !MODIFIER_SHORTCUT_IDS.has(s.id))
+              .map((shortcut) => (
+                <ShortcutRow
+                  key={shortcut.id}
+                  shortcut={shortcut}
+                  isRecording={recordingId === shortcut.id}
+                  onToggle={() => toggleShortcut(shortcut.id)}
+                  onStartRecording={() => setRecordingId(shortcut.id)}
+                  onCancelRecording={() => setRecordingId(null)}
+                />
+              ))}
+          </div>
+
+          <div className="border-t border-chrome-subtle/40" />
+
+          <div className="space-y-1">
+            {local.shortcuts
+              .filter((s) => MODIFIER_SHORTCUT_IDS.has(s.id))
+              .map((shortcut) => (
+                <ModifierShortcutRow
+                  key={shortcut.id}
+                  shortcut={shortcut}
+                  isRecording={recordingId === shortcut.id}
+                  onToggle={() => toggleShortcut(shortcut.id)}
+                  onStartRecording={() => setRecordingId(shortcut.id)}
+                  onCancelRecording={() => setRecordingId(null)}
+                />
+              ))}
           </div>
 
           <div className="border-t border-chrome-subtle/40" />
@@ -572,11 +607,11 @@ function CommitPromptEditor({
           Used to generate the suggested commit message for git branches
         </div>
       </div>
-      <textarea
+      <Textarea
         value={value}
         onChange={(e) => onChange(e.target.value)}
         rows={3}
-        className="w-full px-3 py-2 text-xs rounded-lg border border-chrome bg-surface-elevated focus:outline-none focus:ring-2 focus:ring-focus-ring/40 resize-none font-mono"
+        className="text-xs font-mono"
       />
     </div>
   );
@@ -650,6 +685,70 @@ function ShortcutRow({
           title={shortcut.enabled ? 'Click to rebind' : ''}
         >
           <KbdRaw keys={shortcut.keys} />
+        </button>
+      )}
+    </div>
+  );
+}
+
+
+/* ─── Modifier Shortcut Row ─── */
+
+function ModifierShortcutRow({
+  shortcut,
+  isRecording,
+  onToggle,
+  onStartRecording,
+  onCancelRecording,
+}: {
+  shortcut: ShortcutBinding;
+  isRecording: boolean;
+  onToggle: () => void;
+  onStartRecording: () => void;
+  onCancelRecording: () => void;
+}) {
+  return (
+    <div
+      className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${isRecording
+          ? 'bg-focus-ring/8 ring-1 ring-focus-ring/30'
+          : 'hover:bg-surface-tertiary/40'
+        }`}
+    >
+      {/* Toggle */}
+      <Toggle checked={shortcut.enabled} onChange={onToggle} />
+
+      {/* Label */}
+      <span
+        className={`flex-1 text-[13px] transition-colors ${shortcut.enabled ? 'text-content-primary' : 'text-content-tertiary'
+          }`}
+      >
+        {shortcut.label}
+      </span>
+
+      {/* Key badge — shows modifier + "1–9" */}
+      {isRecording ? (
+        <button
+          onClick={onCancelRecording}
+          className="relative px-2.5 py-1 rounded-md border border-focus-ring/50 bg-focus-ring/8 min-w-[72px] flex items-center justify-center"
+        >
+          <span className="text-[10px] text-content-secondary animate-pulse">
+            Press keys…
+          </span>
+        </button>
+      ) : (
+        <button
+          onClick={onStartRecording}
+          disabled={!shortcut.enabled}
+          className={`group relative px-2.5 py-1 rounded-md border min-w-[72px] flex items-center justify-center transition-all ${shortcut.enabled
+              ? 'border-chrome/60 bg-surface-tertiary/40 hover:border-chrome-focus/60 hover:bg-surface-tertiary/80 cursor-pointer'
+              : 'border-chrome/30 bg-surface-tertiary/20 opacity-40 cursor-not-allowed'
+            }`}
+          title={shortcut.enabled ? 'Click to rebind' : ''}
+        >
+          <span className="inline-flex items-center gap-px text-[10px] leading-none font-normal tracking-wide">
+            <KbdRaw keys={shortcut.keys} />
+            <kbd className="font-sans not-italic ml-px">1–9</kbd>
+          </span>
         </button>
       )}
     </div>

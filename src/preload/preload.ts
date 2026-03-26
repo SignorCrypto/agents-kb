@@ -112,6 +112,23 @@ const api: ElectronAPI = {
     return () => ipcRenderer.removeListener('models:updated', handler);
   },
 
+  // Terminal
+  terminalCreate: (projectId, terminalId) => ipcRenderer.invoke('terminal:create', { projectId, terminalId }),
+  terminalWrite: (terminalId, data) => ipcRenderer.invoke('terminal:write', { terminalId, data }),
+  terminalResize: (terminalId, cols, rows) => ipcRenderer.invoke('terminal:resize', { terminalId, cols, rows }),
+  terminalKill: (terminalId) => ipcRenderer.invoke('terminal:kill', { terminalId }),
+  terminalKillProject: (projectId) => ipcRenderer.invoke('terminal:kill-project', { projectId }),
+  onTerminalData: (callback) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { terminalId: string; data: string }) => callback(data);
+    ipcRenderer.on('terminal:data', handler);
+    return () => ipcRenderer.removeListener('terminal:data', handler);
+  },
+  onTerminalExit: (callback) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { terminalId: string; exitCode: number }) => callback(data);
+    ipcRenderer.on('terminal:exit', handler);
+    return () => ipcRenderer.removeListener('terminal:exit', handler);
+  },
+
   // App
   appGetPlatform: () => process.platform,
   appGetVersion: () => ipcRenderer.invoke('app:get-version'),

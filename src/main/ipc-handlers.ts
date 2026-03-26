@@ -30,6 +30,7 @@ import { isDemoMode, getDemoProjects, getDemoJobs, getDemoSettings, getDemoBranc
 import { isGitRepoRoot, listBranches, checkoutBranch, createBranch, gitStageAll, gitStageFiles, gitCommit, getBranchesStatus, gitPush, gitDeleteBranch, getUnpushedCommits, listChangedFilesDetailed, getFileDiff, gitDiscardFile, gitDiscardAllChanges } from './git-snapshot';
 import { setSkillsCache, registerSkillsIpc } from './skills/index';
 import { registerGitHistoryIpc } from './git-history/index';
+import { registerTerminalIpc, terminalManager as terminalManagerInstance } from './terminal/index';
 import { listProjectFiles } from './file-list';
 import { TitleGenerationQueue } from './title-generation';
 import type { Job, JobImage, JobDetailDrafts, JobComposerDraft, PendingQuestionDraft, OutputEntry, RawMessage, PendingQuestion, AppSettings, Project, ModelChoice, EffortLevel, PromptConfig, PermissionMode, DynamicModelInfo, ModelOption, Skill, AccountInfo, ThinkingMode, FollowUp, JobStepSnapshot } from '../shared/types';
@@ -1102,6 +1103,7 @@ function registerDemoHandlers(): void {
     'skills:list',
     'models:list',
     'account:info',
+    'terminal:create', 'terminal:write', 'terminal:resize', 'terminal:kill', 'terminal:kill-project',
   ];
   for (const channel of noOpChannels) {
     ipcMain.handle(channel, () => null);
@@ -1207,6 +1209,7 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     for (const job of jobs) {
       sessionManager.kill(job.id);
     }
+    terminalManagerInstance.killByProject(id);
     removeProject(id);
   });
 
@@ -2134,6 +2137,9 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
   // === Skills ===
   registerSkillsIpc();
   registerGitHistoryIpc();
+
+  // === Terminal ===
+  registerTerminalIpc(getWindow);
 
   // === Account Info ===
   // Eagerly fetch at startup

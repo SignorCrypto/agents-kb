@@ -1,4 +1,4 @@
-export type { KanbanColumn, JobStatus, Project, OutputEntry, RawMessage, PendingQuestion, SubQuestion, FollowUp, Job, JobImage, DraftImage, JobComposerDraft, PendingQuestionDraft, JobDetailDrafts, JobStepSnapshot, JobFileSnapshot, ShortcutBinding, AppSettings, ThemeMode, ModelChoice, EffortLevel, ThinkingMode, ModelOption, EffortOption, ThinkingModeOption, PromptConfig, PromptId, PreferredEditor, PermissionMode, PermissionModeOption, ProjectColorId, CliHealthStatus, PhaseTokenUsage, Skill, DynamicModelInfo, RewindFilesResult, AccountInfo, GitCommit, GitRef, GitLogResult, ChangedFile } from '../../shared/types';
+export type { KanbanColumn, JobStatus, Project, OutputEntry, RawMessage, PendingQuestion, SubQuestion, FollowUp, Job, JobImage, DraftImage, JobComposerDraft, PendingQuestionDraft, JobDetailDrafts, JobStepSnapshot, JobFileSnapshot, ShortcutBinding, AppSettings, ThemeMode, ModelChoice, EffortLevel, ThinkingMode, ModelOption, EffortOption, ThinkingModeOption, PromptConfig, PromptId, PreferredEditor, PermissionMode, PermissionModeOption, ProjectColorId, CliHealthStatus, PhaseTokenUsage, Skill, DynamicModelInfo, RewindFilesResult, AccountInfo, GitCommit, GitRef, GitLogResult, ChangedFile, TerminalTab } from '../../shared/types';
 export { DEFAULT_SETTINGS, DEFAULT_SHORTCUTS, DEFAULT_COMMIT_PROMPT, DEFAULT_PROMPT_CONFIGS, PROMPT_IDS, EFFORT_LABELS, getEffortOptionsForModel, getEffortOptionsForThinking, getThinkingDisplay, getThinkingModeOptionsForModel, normalizeEffortForThinking, PROJECT_COLORS, getProjectColor, PERMISSION_MODE_CATALOG } from '../../shared/types';
 
 import type { Project, Job, JobImage, JobDetailDrafts, OutputEntry, RawMessage, PendingQuestion, AppSettings, ModelChoice, EffortLevel, ThinkingMode, CliHealthStatus, Skill, AccountInfo, RewindFilesResult, ModelOption, GitCommit, GitLogResult, ChangedFile } from '../../shared/types';
@@ -99,6 +99,15 @@ export interface ElectronAPI {
   // Account
   accountInfo: () => Promise<AccountInfo | null>;
   onAccountUpdated: (callback: (info: AccountInfo) => void) => () => void;
+
+  // Terminal
+  terminalCreate: (projectId: string | null, terminalId: string) => Promise<void>;
+  terminalWrite: (terminalId: string, data: string) => Promise<void>;
+  terminalResize: (terminalId: string, cols: number, rows: number) => Promise<void>;
+  terminalKill: (terminalId: string) => Promise<void>;
+  terminalKillProject: (projectId: string) => Promise<void>;
+  onTerminalData: (callback: (data: { terminalId: string; data: string }) => void) => () => void;
+  onTerminalExit: (callback: (data: { terminalId: string; exitCode: number }) => void) => () => void;
 
   // App
   appGetPlatform: () => NodeJS.Platform;

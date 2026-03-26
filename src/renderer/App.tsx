@@ -7,6 +7,7 @@ import { JobDetailPanel } from './components/JobDetailPanel';
 import { NewJobDialog } from './components/NewJobDialog';
 import { SettingsDialog } from './components/SettingsDialog';
 import { SkillsPanel } from './features/skills';
+import { TerminalPanel, AddTerminalPopover } from './features/terminal';
 import { PromptHistoryDialog } from './components/PromptHistoryDialog';
 import { SetupScreen } from './components/SetupScreen';
 import { SplashScreen } from './components/SplashScreen';
@@ -37,6 +38,9 @@ export default function App() {
   const projects = useKanbanStore((s) => s.projects);
   const selectedProjectId = useKanbanStore((s) => s.selectedProjectId);
   const selectProject = useKanbanStore((s) => s.selectProject);
+  const toggleTerminalForProject = useKanbanStore((s) => s.toggleTerminalForProject);
+  const showAddTerminal = useKanbanStore((s) => s.showAddTerminal);
+  const setShowAddTerminal = useKanbanStore((s) => s.setShowAddTerminal);
   const theme = useKanbanStore((s) => s.settings.theme);
 
   const selectedProject = useMemo(
@@ -75,6 +79,26 @@ export default function App() {
 
   const toggleSettings = useCallback(() => setShowSettings(!showSettings), [setShowSettings, showSettings]);
   useShortcut('openSettings', toggleSettings);
+
+  const terminalTabs = useKanbanStore((s) => s.terminalTabs);
+  const terminalExpanded = useKanbanStore((s) => s.terminalExpanded);
+  const setTerminalExpanded = useKanbanStore((s) => s.setTerminalExpanded);
+
+  const toggleTerminalShortcut = useCallback(() => {
+    if (selectedProjectId) {
+      toggleTerminalForProject(selectedProjectId);
+    } else if (terminalTabs.length > 0) {
+      // No project selected — just toggle the panel
+      setTerminalExpanded(!terminalExpanded);
+    } else {
+      // No terminals at all — open the new terminal dialog
+      setShowAddTerminal(true);
+    }
+  }, [selectedProjectId, toggleTerminalForProject, terminalTabs.length, terminalExpanded, setTerminalExpanded, setShowAddTerminal]);
+  useShortcut('toggleTerminal', toggleTerminalShortcut);
+
+  const openNewTerminal = useCallback(() => setShowAddTerminal(true), [setShowAddTerminal]);
+  useShortcut('newTerminal', openNewTerminal);
 
   // Show splash screen during initial health check
   if (cliHealth === null && cliHealthLoading) {
@@ -143,9 +167,12 @@ export default function App() {
           </div>
         </div>
 
-        <div className="flex-1 flex min-h-0">
-          <KanbanBoard />
-          {selectedJobId && <JobDetailPanel />}
+        <div className="flex-1 flex flex-col min-h-0">
+          <div className="flex-1 flex min-h-0">
+            <KanbanBoard />
+            {selectedJobId && <JobDetailPanel />}
+          </div>
+          <TerminalPanel />
         </div>
       </div>
 
@@ -153,6 +180,12 @@ export default function App() {
       {showNewJobDialog && <NewJobDialog />}
       {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} />}
       {showSkillsPanel && <SkillsPanel onClose={() => setShowSkillsPanel(false)} />}
+      {showAddTerminal && (
+        <AddTerminalPopover
+          defaultProjectId={selectedProjectId ?? projects[0]?.id ?? null}
+          onClose={() => setShowAddTerminal(false)}
+        />
+      )}
       {promptHistoryJobId && <PromptHistoryDialog />}
     </div>
   );

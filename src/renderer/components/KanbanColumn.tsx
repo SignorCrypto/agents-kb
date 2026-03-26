@@ -35,7 +35,7 @@ export function KanbanColumn({ column, label, jobs }: KanbanColumnProps) {
       </div>
 
       {/* Cards */}
-      <div className="flex-1 overflow-y-auto space-y-2 px-1 pt-1" onClick={handleEmptyClick}>
+      <div className="flex-1 overflow-y-auto space-y-2 px-1 pt-1 pb-4" onClick={handleEmptyClick}>
         {jobs.map((job) => (
           <JobCard key={job.id} job={job} />
         ))}

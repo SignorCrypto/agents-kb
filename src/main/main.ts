@@ -9,6 +9,7 @@ console.log('[main] Starting Agents-KB...');
 
 import { registerIpcHandlers, initModels } from './ipc-handlers';
 import { sessionManager } from './session-manager';
+import { terminalManager } from './terminal/index';
 import { flushNow, getSettings } from './store';
 import { setupAutoUpdater } from './auto-updater';
 
@@ -88,4 +89,5 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   flushNow();
   sessionManager.killAll();
+  terminalManager.killAll();
 });

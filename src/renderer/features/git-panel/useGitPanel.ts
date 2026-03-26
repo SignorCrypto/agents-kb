@@ -108,14 +108,11 @@ export function useGitPanel(
   );
 
   const runningJobs = useMemo(
-    () => projectBranchJobs.filter((j) => j.status === 'running'),
+    () => projectBranchJobs.filter((j) => j.status === 'running' && j.column === 'development'),
     [projectBranchJobs],
   );
 
-  const hasRunningDevJobs = useMemo(
-    () => runningJobs.some((j) => j.column === 'development'),
-    [runningJobs],
-  );
+  const hasRunningDevJobs = runningJobs.length > 0;
 
   const runningJobFiles = useMemo(() => {
     const files = new Set<string>();

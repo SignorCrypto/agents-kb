@@ -7,6 +7,8 @@ import { Kbd } from './Kbd';
 import { SegmentedPicker } from './SegmentedPicker';
 import { MentionTextarea } from './MentionInput';
 import { ImageAttachmentBar } from './ImageAttachmentBar';
+import { ProjectSelect } from './ProjectSelect';
+import { Input } from './Input';
 import { getEffortOptionsForThinking, getProjectColor, getThinkingModeOptionsForModel, normalizeEffortForThinking } from '../types/index';
 import type { ModelChoice, EffortLevel, ThinkingMode } from '../types/index';
 
@@ -195,27 +197,12 @@ export function NewJobDialog() {
               </div>
             );
           })() : (
-            <div className="relative">
-              <span
-                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 inline-block w-2.5 h-2.5 rounded-full shrink-0"
-                style={{ backgroundColor: getProjectColor(projects.find((p) => p.id === selectedProjectId)?.color) }}
-              />
-              <select
-                ref={projectSelectRef}
-                value={selectedProjectId}
-                onChange={(e) => setSelectedProjectId(e.target.value)}
-                className="w-full appearance-none pl-8 pr-10 py-2 text-sm rounded-lg border border-chrome bg-surface-elevated focus:outline-none focus:ring-2 focus:ring-focus-ring/40"
-              >
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-              <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-content-secondary" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M4 6l4 4 4-4" />
-              </svg>
-            </div>
+            <ProjectSelect
+              ref={projectSelectRef}
+              projects={projects}
+              value={selectedProjectId}
+              onChange={setSelectedProjectId}
+            />
           )}
         </div>
 
@@ -277,7 +264,7 @@ export function NewJobDialog() {
               {/* New branch fields — revealed when "Create new branch" is selected */}
               {isCreatingBranch && (
                 <div className="mt-2 space-y-2">
-                  <input
+                  <Input
                     ref={newBranchInputRef}
                     type="text"
                     value={newBranchName}
@@ -286,9 +273,7 @@ export function NewJobDialog() {
                       if (branchError) setBranchError('');
                     }}
                     placeholder="feature/my-branch"
-                    className={`w-full px-3 py-2 text-sm rounded-lg border bg-surface-elevated focus:outline-none focus:ring-2 focus:ring-focus-ring/40 ${
-                      branchError ? 'border-semantic-error' : 'border-chrome'
-                    }`}
+                    error={!!branchError}
                   />
                   {branchError && (
                     <p className="text-[11px] text-semantic-error">{branchError}</p>

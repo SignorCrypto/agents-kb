@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Project, Job, OutputEntry, RawMessage, PendingQuestion, AppSettings, CliHealthStatus, ModelOption } from '../types/index';
+import type { Project, Job, OutputEntry, RawMessage, PendingQuestion, AppSettings, CliHealthStatus, ModelOption, TerminalTab } from '../types/index';
 import { DEFAULT_SETTINGS } from '../types/index';
 
 interface KanbanState {
@@ -12,6 +12,10 @@ interface KanbanState {
   showNewJobDialog: boolean;
   showSettings: boolean;
   showSkillsPanel: boolean;
+  showAddTerminal: boolean;
+  terminalTabs: TerminalTab[];
+  activeTerminalId: string | null;
+  terminalExpanded: boolean;
   promptHistoryJobId: string | null;
   settings: AppSettings;
   /** Model catalog fetched from the SDK at app startup */
@@ -46,6 +50,14 @@ interface KanbanState {
   setShowNewJobDialog: (show: boolean) => void;
   setShowSettings: (show: boolean) => void;
   setShowSkillsPanel: (show: boolean) => void;
+  setShowAddTerminal: (show: boolean) => void;
+  addTerminalTab: (projectId: string, name: string) => TerminalTab;
+  removeTerminalTab: (tabId: string) => void;
+  renameTerminalTab: (tabId: string, name: string) => void;
+  setActiveTerminal: (tabId: string) => void;
+  setTerminalExpanded: (expanded: boolean) => void;
+  clearTerminalTabs: () => void;
+  toggleTerminalForProject: (projectId: string) => void;
   setPromptHistoryJobId: (id: string | null) => void;
   setSettings: (settings: AppSettings) => void;
   setAvailableModels: (models: ModelOption[]) => void;
@@ -68,6 +80,10 @@ export const useKanbanStore = create<KanbanState>((set, get) => ({
   showNewJobDialog: false,
   showSettings: false,
   showSkillsPanel: false,
+  showAddTerminal: false,
+  terminalTabs: [],
+  activeTerminalId: null,
+  terminalExpanded: false,
   promptHistoryJobId: null,
   settings: DEFAULT_SETTINGS,
   availableModels: [],
@@ -179,6 +195,57 @@ export const useKanbanStore = create<KanbanState>((set, get) => ({
   setShowNewJobDialog: (show) => set({ showNewJobDialog: show }),
   setShowSettings: (show) => set({ showSettings: show }),
   setShowSkillsPanel: (show) => set({ showSkillsPanel: show }),
+  setShowAddTerminal: (show) => set({ showAddTerminal: show }),
+  addTerminalTab: (projectId, name) => {
+    const tab: TerminalTab = { id: crypto.randomUUID(), projectId, name, createdAt: new Date().toISOString() };
+    set((s) => ({
+      terminalTabs: [...s.terminalTabs, tab],
+      activeTerminalId: tab.id,
+      terminalExpanded: true,
+    }));
+    return tab;
+  },
+  removeTerminalTab: (tabId) => set((s) => {
+    const tabs = s.terminalTabs.filter((t) => t.id !== tabId);
+    let activeId = s.activeTerminalId;
+    if (activeId === tabId) {
+      // Pick the previous tab in the same project group, or the first remaining tab
+      const removed = s.terminalTabs.find((t) => t.id === tabId);
+      const siblings = tabs.filter((t) => t.projectId === removed?.projectId);
+      activeId = siblings.length > 0 ? siblings[siblings.length - 1].id : (tabs.length > 0 ? tabs[tabs.length - 1].id : null);
+    }
+    return {
+      terminalTabs: tabs,
+      activeTerminalId: activeId,
+      terminalExpanded: tabs.length > 0 ? s.terminalExpanded : false,
+    };
+  }),
+  renameTerminalTab: (tabId, name) => set((s) => ({
+    terminalTabs: s.terminalTabs.map((t) => t.id === tabId ? { ...t, name } : t),
+  })),
+  setActiveTerminal: (tabId) => set({ activeTerminalId: tabId }),
+  setTerminalExpanded: (expanded) => set({ terminalExpanded: expanded }),
+  clearTerminalTabs: () => set({
+    terminalTabs: [],
+    activeTerminalId: null,
+    terminalExpanded: false,
+  }),
+  toggleTerminalForProject: (projectId) => set((s) => {
+    const hasTabsForProject = s.terminalTabs.some((t) => t.projectId === projectId);
+    if (hasTabsForProject) {
+      const activeTab = s.terminalTabs.find((t) => t.id === s.activeTerminalId);
+      // Toggle the active project's panel open/closed without destroying sessions.
+      if (activeTab?.projectId === projectId) {
+        return { terminalExpanded: !s.terminalExpanded };
+      }
+
+      // Otherwise switch to the first tab of this project and expand the panel.
+      const firstTab = s.terminalTabs.find((t) => t.projectId === projectId);
+      return { activeTerminalId: firstTab?.id ?? s.activeTerminalId, terminalExpanded: true };
+    }
+    // No terminals for this project — open the new terminal dialog
+    return { showAddTerminal: true };
+  }),
   setPromptHistoryJobId: (id) => set({ promptHistoryJobId: id }),
   setSettings: (settings) => set({ settings }),
   setAvailableModels: (models) => set({ availableModels: models }),

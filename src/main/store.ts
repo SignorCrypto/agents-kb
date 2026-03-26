@@ -367,6 +367,11 @@ export function getSettings(): AppSettings {
     const existingIds = new Set((stored.shortcuts as Array<{ id: string }>).map((s) => s.id));
     const missing = DEFAULT_SHORTCUTS.filter((s) => !existingIds.has(s.id));
     merged.shortcuts = [...(stored.shortcuts as typeof DEFAULT_SHORTCUTS), ...missing];
+
+    // Migrate toggleTerminal from mod+` to mod+t
+    merged.shortcuts = (merged.shortcuts as typeof DEFAULT_SHORTCUTS).map((s) =>
+      s.id === 'toggleTerminal' && s.keys === 'mod+`' ? { ...s, keys: 'mod+t' } : s,
+    );
   }
 
   // Migrate legacy commitPrompt -> promptConfigs
