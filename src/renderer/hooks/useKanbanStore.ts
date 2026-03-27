@@ -80,6 +80,104 @@ interface KanbanState {
   init: () => Promise<void>;
 }
 
+function removeProjectTerminalState(
+  state: Pick<KanbanState, 'terminalTabs' | 'activeTerminalId' | 'terminalExpanded' | 'terminalSplit' | 'activeSplitPane'>,
+  projectId: string,
+): Pick<KanbanState, 'terminalTabs' | 'activeTerminalId' | 'terminalExpanded' | 'terminalSplit' | 'activeSplitPane'> {
+  const removedTabIds = new Set(
+    state.terminalTabs.filter((tab) => tab.projectId === projectId).map((tab) => tab.id),
+  );
+
+  if (removedTabIds.size === 0) {
+    return {
+      terminalTabs: state.terminalTabs,
+      activeTerminalId: state.activeTerminalId,
+      terminalExpanded: state.terminalExpanded,
+      terminalSplit: state.terminalSplit,
+      activeSplitPane: state.activeSplitPane,
+    };
+  }
+
+  const terminalTabs = state.terminalTabs.filter((tab) => !removedTabIds.has(tab.id));
+  const remainingTabIds = new Set(terminalTabs.map((tab) => tab.id));
+
+  if (!state.terminalSplit) {
+    const activeTerminalId =
+      state.activeTerminalId && remainingTabIds.has(state.activeTerminalId)
+        ? state.activeTerminalId
+        : terminalTabs[terminalTabs.length - 1]?.id ?? null;
+
+    return {
+      terminalTabs,
+      activeTerminalId,
+      terminalExpanded: terminalTabs.length > 0 ? state.terminalExpanded : false,
+      terminalSplit: null,
+      activeSplitPane: state.activeSplitPane,
+    };
+  }
+
+  const leftTabIds = state.terminalSplit.leftTabIds.filter((tabId) => remainingTabIds.has(tabId));
+  const rightTabIds = state.terminalSplit.rightTabIds.filter((tabId) => remainingTabIds.has(tabId));
+
+  if (leftTabIds.length === 0 && rightTabIds.length === 0) {
+    return {
+      terminalTabs,
+      activeTerminalId: null,
+      terminalExpanded: false,
+      terminalSplit: null,
+      activeSplitPane: 'left',
+    };
+  }
+
+  if (leftTabIds.length === 0 || rightTabIds.length === 0) {
+    const survivingTabIds = leftTabIds.length > 0 ? leftTabIds : rightTabIds;
+    const survivingActiveId =
+      leftTabIds.length > 0
+        ? state.terminalSplit.activeLeftTabId
+        : state.terminalSplit.activeRightTabId;
+    const activeTerminalId =
+      survivingActiveId && remainingTabIds.has(survivingActiveId)
+        ? survivingActiveId
+        : survivingTabIds[survivingTabIds.length - 1] ?? null;
+
+    return {
+      terminalTabs,
+      activeTerminalId,
+      terminalExpanded: terminalTabs.length > 0 ? state.terminalExpanded : false,
+      terminalSplit: null,
+      activeSplitPane: 'left',
+    };
+  }
+
+  const activeLeftTabId = remainingTabIds.has(state.terminalSplit.activeLeftTabId)
+    ? state.terminalSplit.activeLeftTabId
+    : leftTabIds[leftTabIds.length - 1];
+  const activeRightTabId = remainingTabIds.has(state.terminalSplit.activeRightTabId)
+    ? state.terminalSplit.activeRightTabId
+    : rightTabIds[rightTabIds.length - 1];
+  const activeSplitPane = state.activeSplitPane;
+  const preferredActiveTabId = activeSplitPane === 'left' ? activeLeftTabId : activeRightTabId;
+  const activeTerminalId = remainingTabIds.has(preferredActiveTabId)
+    ? preferredActiveTabId
+    : activeSplitPane === 'left'
+      ? activeRightTabId
+      : activeLeftTabId;
+
+  return {
+    terminalTabs,
+    activeTerminalId,
+    terminalExpanded: state.terminalExpanded,
+    terminalSplit: {
+      ...state.terminalSplit,
+      leftTabIds,
+      rightTabIds,
+      activeLeftTabId,
+      activeRightTabId,
+    },
+    activeSplitPane,
+  };
+}
+
 export const useKanbanStore = create<KanbanState>((set, get) => ({
   cliHealth: null,
   cliHealthLoading: true,
@@ -105,11 +203,17 @@ export const useKanbanStore = create<KanbanState>((set, get) => ({
 
   setProjects: (projects) => set({ projects }),
   addProject: (project) => set((s) => ({ projects: [...s.projects, project] })),
-  removeProject: (id) => set((s) => ({
-    projects: s.projects.filter(p => p.id !== id),
-    jobs: s.jobs.filter(j => j.projectId !== id),
-    selectedJobId: s.jobs.some(j => j.projectId === id && j.id === s.selectedJobId) ? null : s.selectedJobId,
-  })),
+  removeProject: (id) => set((s) => {
+    const terminalState = removeProjectTerminalState(s, id);
+
+    return {
+      projects: s.projects.filter((p) => p.id !== id),
+      jobs: s.jobs.filter((j) => j.projectId !== id),
+      selectedJobId: s.jobs.some((j) => j.projectId === id && j.id === s.selectedJobId) ? null : s.selectedJobId,
+      selectedProjectId: s.selectedProjectId === id ? null : s.selectedProjectId,
+      ...terminalState,
+    };
+  }),
   renameProject: (id, name) => set((s) => ({
     projects: s.projects.map(p => p.id === id ? { ...p, name } : p),
   })),
@@ -461,6 +565,11 @@ export const useKanbanStore = create<KanbanState>((set, get) => ({
 
   init: async () => {
     const api = window.electronAPI;
+    const refreshSettings = () => {
+      api.settingsGet().then((nextSettings) => {
+        set({ settings: nextSettings });
+      }).catch(() => { /* keep current settings if refresh fails */ });
+    };
     const [projects, jobs, settings] = await Promise.all([
       api.projectsList(),
       api.jobsList(),
@@ -471,7 +580,10 @@ export const useKanbanStore = create<KanbanState>((set, get) => ({
 
     // Fetch model catalog from SDK (cached in main process)
     api.modelsList().then((models) => {
-      if (models?.length) get().setAvailableModels(models);
+      if (models?.length) {
+        get().setAvailableModels(models);
+        refreshSettings();
+      }
     }).catch(() => { /* models will arrive via onModelsUpdated when ready */ });
 
     // Detect installed editors once at startup (cached for the session)
@@ -481,7 +593,10 @@ export const useKanbanStore = create<KanbanState>((set, get) => ({
 
     // Listen for model updates from the SDK (pushed at startup or when sessions discover new models)
     api.onModelsUpdated((models) => {
-      if (models?.length) get().setAvailableModels(models);
+      if (models?.length) {
+        get().setAvailableModels(models);
+        refreshSettings();
+      }
     });
 
     // Subscribe to events

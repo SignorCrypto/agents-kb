@@ -96,7 +96,7 @@ export function PaneTabBar({
   return (
     <div
       className={`
-        flex items-center gap-0.5 px-1.5 py-0.5 shrink-0 select-none overflow-x-auto overflow-y-hidden
+        relative flex items-center gap-0.5 px-1.5 pt-0.5 pb-px shrink-0 select-none overflow-x-auto overflow-y-hidden
         border-b transition-colors duration-100 bg-surface-secondary
         ${isSplit && isActivePane
           ? 'border-chrome-subtle'

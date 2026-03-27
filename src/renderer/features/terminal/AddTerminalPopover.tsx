@@ -69,7 +69,7 @@ export function AddTerminalPopover({ defaultProjectId, pane, onClose }: AddTermi
   useShortcut('focusProject', useCallback(() => {
     projectSelectRef.current?.focus();
     projectSelectRef.current?.showPicker?.();
-  }, []), { ref: dialogRef, enabled: !defaultProjectId });
+  }, []), { ref: dialogRef, enabled: projects.length > 0 });
 
   if (projects.length === 0) return null;
 
@@ -90,7 +90,7 @@ export function AddTerminalPopover({ defaultProjectId, pane, onClose }: AddTermi
         <div className="mb-4">
           <label className="flex items-center justify-between text-xs font-medium text-content-secondary uppercase tracking-wider mb-1.5">
             Project
-            {!defaultProjectId && <Kbd shortcutId="focusProject" />}
+            <Kbd shortcutId="focusProject" />
           </label>
           <ProjectSelect
             ref={projectSelectRef}

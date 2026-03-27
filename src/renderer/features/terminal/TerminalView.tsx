@@ -19,7 +19,7 @@ export function TerminalView({ terminalId, projectId, isActive }: TerminalViewPr
     <div
       ref={containerRef}
       onMouseDown={handleMouseDown}
-      className={`w-full h-full px-1 pt-2 ${isActive ? '' : 'hidden'}`}
+      className={`w-full h-full px-1 pt-1 ${isActive ? '' : 'hidden'}`}
     />
   );
 }

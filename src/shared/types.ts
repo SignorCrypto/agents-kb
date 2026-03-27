@@ -69,6 +69,29 @@ export interface DynamicModelInfo {
   supportsAdaptiveThinking?: boolean;
 }
 
+export const STATIC_DEFAULT_MODEL: ModelChoice = "opus";
+
+export function getPreferredDefaultModel<T extends { value: string }>(
+  models: readonly T[] | null | undefined,
+  fallback: ModelChoice = STATIC_DEFAULT_MODEL,
+): ModelChoice {
+  return models?.[0]?.value ?? fallback;
+}
+
+export function normalizeModelChoice<T extends { value: string }>(
+  model: ModelChoice | undefined,
+  models: readonly T[] | null | undefined,
+  fallback: ModelChoice = STATIC_DEFAULT_MODEL,
+): ModelChoice {
+  if (!models?.length) {
+    return model ?? fallback;
+  }
+  if (model && models.some((entry) => entry.value === model)) {
+    return model;
+  }
+  return getPreferredDefaultModel(models, fallback);
+}
+
 /** Label/badge lookup for effort levels — display only, available levels come from the model */
 export const EFFORT_LABELS: Record<string, EffortOption> = {
   low: { value: "low", label: "Low", badge: "LOW" },
@@ -246,7 +269,7 @@ export const DEFAULT_SHORTCUTS: ShortcutBinding[] = [
   { id: "newJob", label: "New Job", keys: "mod+n", enabled: true },
   { id: "submitForm", label: "Submit / Follow Up", keys: "mod+enter", enabled: true },
   { id: "openSettings", label: "Settings", keys: "mod+s", enabled: true },
-  { id: "focusProject", label: "Focus Project (New Job)", keys: "mod+p", enabled: true },
+  { id: "focusProject", label: "Focus Project (New Job & New Terminal)", keys: "mod+p", enabled: true },
   { id: "focusBranch", label: "Focus Branch (New Job)", keys: "mod+b", enabled: true },
   { id: "togglePlan", label: "Toggle Plan (New Job)", keys: "shift+tab", enabled: true },
   { id: "toggleTerminal", label: "Toggle Terminal", keys: "mod+`", enabled: true },
@@ -280,7 +303,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   showShortcutHints: false,
   shortcuts: [...DEFAULT_SHORTCUTS],
   promptConfigs: { ...DEFAULT_PROMPT_CONFIGS },
-  defaultModel: "opus",
+  defaultModel: STATIC_DEFAULT_MODEL,
   defaultThinkingMode: "sdkDefault",
   defaultEffort: "medium",
   alwaysShowModelEffort: false,
@@ -547,7 +570,7 @@ export interface Job {
 
 export interface ChangedFile {
   path: string;
-  status: 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked';
+  status: "modified" | "added" | "deleted" | "renamed" | "untracked";
   oldPath?: string;
   additions?: number;
   deletions?: number;
@@ -568,7 +591,7 @@ export interface GitCommit {
 
 export interface GitRef {
   name: string;
-  type: 'branch' | 'tag' | 'remote' | 'head';
+  type: "branch" | "tag" | "remote" | "head";
 }
 
 export interface GitLogResult {

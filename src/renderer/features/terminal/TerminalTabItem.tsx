@@ -98,11 +98,11 @@ export function TerminalTabItem({
       onClick={(e) => { e.stopPropagation(); onClick(); }}
       onDoubleClick={handleDoubleClick}
       className={`
-        group flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium
+        group flex items-center gap-1.5 px-2.5 text-xs font-medium
         transition-colors duration-100 select-none min-w-0
         ${isActive
-          ? 'bg-surface-tertiary/80 text-content-primary'
-          : 'text-content-tertiary hover:text-content-secondary hover:bg-surface-tertiary/40'
+          ? 'bg-terminal-surface text-content-primary rounded-t-md rounded-b-none relative -mb-px z-10 border border-chrome-subtle/50 border-b-transparent py-1'
+          : 'text-content-tertiary hover:text-content-secondary hover:bg-surface-tertiary/40 rounded-md py-1'
         }
       `}
     >

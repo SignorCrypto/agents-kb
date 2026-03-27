@@ -21,6 +21,7 @@ import {
   appendRawMessage,
   getOutputLog,
   getSettings,
+  getStoredSettings,
   updateSettings,
 } from './store';
 import { sessionManager } from './session-manager';
@@ -34,7 +35,7 @@ import { registerTerminalIpc, terminalManager as terminalManagerInstance } from 
 import { listProjectFiles } from './file-list';
 import { TitleGenerationQueue } from './title-generation';
 import type { Job, JobImage, JobDetailDrafts, JobComposerDraft, PendingQuestionDraft, OutputEntry, RawMessage, PendingQuestion, AppSettings, Project, ModelChoice, EffortLevel, PromptConfig, PermissionMode, DynamicModelInfo, ModelOption, Skill, AccountInfo, ThinkingMode, FollowUp, JobStepSnapshot } from '../shared/types';
-import { DEFAULT_PROMPT_CONFIGS, normalizeEffortForThinking } from '../shared/types';
+import { DEFAULT_PROMPT_CONFIGS, normalizeEffortForThinking, normalizeModelChoice } from '../shared/types';
 import {
   JobStepHistoryTracker,
   buildRollbackTargets,
@@ -143,6 +144,22 @@ function resolveRuntimeThinking(job: Job, settings: AppSettings): {
   );
 
   return { model, thinkingMode, ...(effort ? { effort } : {}) };
+}
+
+function getEffectiveSettings(): AppSettings {
+  const settings = getSettings();
+  const storedSettings = getStoredSettings();
+  const hasStoredDefaultModel =
+    typeof storedSettings?.defaultModel === 'string' && storedSettings.defaultModel.trim().length > 0;
+  const defaultModel = normalizeModelChoice(
+    hasStoredDefaultModel ? settings.defaultModel : undefined,
+    cachedDynamicModels,
+    settings.defaultModel,
+  );
+
+  return defaultModel === settings.defaultModel
+    ? settings
+    : { ...settings, defaultModel };
 }
 
 /**
@@ -525,7 +542,7 @@ async function startClaudeSession(
   }
 
   // Resolve effective model/thinking settings: job overrides > settings defaults
-  const settings = getSettings();
+  const settings = getEffectiveSettings();
   const effectiveThinking = resolveRuntimeThinking(job, settings);
 
   // Pull transient image data from cache (if any), then clear to free memory
@@ -2104,11 +2121,11 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
   });
 
   ipcMain.handle('settings:get', () => {
-    return getSettings();
+    return getEffectiveSettings();
   });
 
   ipcMain.handle('settings:update', (_event, partial: Partial<AppSettings>) => {
-    const updated = updateSettings(partial);
+    updateSettings(partial);
     if (partial.theme) {
       nativeTheme.themeSource = partial.theme;
       // Update Windows title bar overlay colors to match new theme
@@ -2123,7 +2140,7 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
         }
       }
     }
-    return updated;
+    return getEffectiveSettings();
   });
 
   // === Models ===

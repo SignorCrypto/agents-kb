@@ -7,7 +7,7 @@ import { SegmentedPicker } from './SegmentedPicker';
 import { CompactSelect } from './CompactSelect';
 import { CheckForUpdatesButton } from './UpdateButton';
 import type { AppSettings, ShortcutBinding, ThemeMode, PreferredEditor, AccountInfo } from '../types/index';
-import { DEFAULT_SETTINGS, getEffortOptionsForThinking, getThinkingModeOptionsForModel, normalizeEffortForThinking, PERMISSION_MODE_CATALOG } from '../types/index';
+import { DEFAULT_SETTINGS, DEFAULT_SHORTCUTS, getEffortOptionsForThinking, getPreferredDefaultModel, getThinkingModeOptionsForModel, normalizeEffortForThinking, PERMISSION_MODE_CATALOG } from '../types/index';
 import { XIcon } from './Icons';
 import { Textarea } from './Input';
 
@@ -36,6 +36,7 @@ function eventToKeys(e: KeyboardEvent): string | null {
 
 const MODIFIER_SHORTCUT_IDS = new Set(['switchTerminalTab']);
 const MODIFIER_KEYS = new Set(['mod', 'shift', 'alt']);
+const DEFAULT_SHORTCUT_LABELS = new Map(DEFAULT_SHORTCUTS.map((shortcut) => [shortcut.id, shortcut.label]));
 
 /** Strip trailing non-modifier key from a shortcut string, keeping only modifier prefix. */
 function stripToModifiers(keys: string): string {
@@ -182,6 +183,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 
   const resetDefaults = () => {
     const fresh = structuredClone(DEFAULT_SETTINGS);
+    fresh.defaultModel = getPreferredDefaultModel(availableModels, fresh.defaultModel);
     persistSettings(fresh);
     setRecordingId(null);
   };
@@ -643,6 +645,7 @@ function ShortcutRow({
   onStartRecording: () => void;
   onCancelRecording: () => void;
 }) {
+  const label = DEFAULT_SHORTCUT_LABELS.get(shortcut.id) ?? shortcut.label;
   return (
     <div
       className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${isRecording
@@ -658,7 +661,7 @@ function ShortcutRow({
         className={`flex-1 text-[13px] transition-colors ${shortcut.enabled ? 'text-content-primary' : 'text-content-tertiary'
           }`}
       >
-        {shortcut.label}
+        {label}
       </span>
 
       {/* Key badge */}
@@ -704,6 +707,7 @@ function ModifierShortcutRow({
   onStartRecording: () => void;
   onCancelRecording: () => void;
 }) {
+  const label = DEFAULT_SHORTCUT_LABELS.get(shortcut.id) ?? shortcut.label;
   return (
     <div
       className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${isRecording
@@ -719,7 +723,7 @@ function ModifierShortcutRow({
         className={`flex-1 text-[13px] transition-colors ${shortcut.enabled ? 'text-content-primary' : 'text-content-tertiary'
           }`}
       >
-        {shortcut.label}
+        {label}
       </span>
 
       {/* Key badge — shows modifier + "1–9" */}

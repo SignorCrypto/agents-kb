@@ -368,10 +368,12 @@ export function getSettings(): AppSettings {
     const missing = DEFAULT_SHORTCUTS.filter((s) => !existingIds.has(s.id));
     merged.shortcuts = [...(stored.shortcuts as typeof DEFAULT_SHORTCUTS), ...missing];
 
-    // Migrate toggleTerminal from mod+` to mod+t
-    merged.shortcuts = (merged.shortcuts as typeof DEFAULT_SHORTCUTS).map((s) =>
-      s.id === 'toggleTerminal' && s.keys === 'mod+`' ? { ...s, keys: 'mod+t' } : s,
-    );
+    const defaultShortcutLabels = new Map(DEFAULT_SHORTCUTS.map((shortcut) => [shortcut.id, shortcut.label]));
+    merged.shortcuts = (merged.shortcuts as typeof DEFAULT_SHORTCUTS).map((s) => {
+      const label = defaultShortcutLabels.get(s.id);
+      return label && s.label !== label ? { ...s, label } : s;
+    });
+
   }
 
   // Migrate legacy commitPrompt -> promptConfigs
@@ -401,6 +403,11 @@ export function getSettings(): AppSettings {
   }
 
   return merged;
+}
+
+export function getStoredSettings(): Partial<AppSettings> | undefined {
+  const stored = (store.store as Partial<StoreSchema>).settings;
+  return stored ? { ...stored } : undefined;
 }
 
 export function updateSettings(partial: Partial<AppSettings>): AppSettings {
