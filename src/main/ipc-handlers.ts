@@ -1178,32 +1178,39 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
   // Release notes — check if version changed and fetch from GitHub
   ipcMain.handle('release-notes:check', async () => {
     const version = app.getVersion();
-    const settings = getSettings();
-    const lastSeen = settings.lastSeenVersion ?? '0.0.0';
+    const demo = isDemoMode();
 
-    if (lastSeen === version) {
-      return { show: false, version, content: '' };
+    if (!demo) {
+      const settings = getSettings();
+      const lastSeen = settings.lastSeenVersion ?? '0.0.0';
+
+      if (lastSeen === version) {
+        return { show: false, version, content: '' };
+      }
+
+      // First install — silently update without showing
+      if (lastSeen === '0.0.0') {
+        updateSettings({ lastSeenVersion: version });
+        return { show: false, version, content: '' };
+      }
     }
 
-    // First install — silently update without showing
-    if (lastSeen === '0.0.0') {
-      updateSettings({ lastSeenVersion: version });
-      return { show: false, version, content: '' };
-    }
-
-    // Version changed — fetch release notes from GitHub
+    // Fetch release notes from GitHub (demo: latest release, normal: current version tag)
     try {
-      const res = await net.fetch(
-        `https://api.github.com/repos/SignorCrypto/agents-kb/releases/tags/v${version}`,
-        { headers: { Accept: 'application/vnd.github.v3+json', 'User-Agent': 'Agents-KB' } },
-      );
+      const url = demo
+        ? 'https://api.github.com/repos/SignorCrypto/agents-kb/releases/latest'
+        : `https://api.github.com/repos/SignorCrypto/agents-kb/releases/tags/v${version}`;
+      const res = await net.fetch(url, {
+        headers: { Accept: 'application/vnd.github.v3+json', 'User-Agent': 'Agents-KB' },
+      });
       if (!res.ok) throw new Error(`GitHub API ${res.status}`);
-      const data = (await res.json()) as { body?: string };
-      updateSettings({ lastSeenVersion: version });
-      return { show: true, version, content: data.body ?? '' };
+      const data = (await res.json()) as { tag_name?: string; body?: string };
+      const releaseVersion = demo ? (data.tag_name?.replace(/^v/, '') ?? version) : version;
+      if (!demo) updateSettings({ lastSeenVersion: version });
+      return { show: true, version: releaseVersion, content: data.body ?? '' };
     } catch {
-      // Network error — silently skip, update version so we don't retry every launch
-      updateSettings({ lastSeenVersion: version });
+      // Network error — silently skip
+      if (!demo) updateSettings({ lastSeenVersion: version });
       return { show: false, version, content: '' };
     }
   });

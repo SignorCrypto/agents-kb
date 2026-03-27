@@ -596,7 +596,7 @@ export const useKanbanStore = create<KanbanState>((set, get) => ({
       });
     }
 
-    // Check for release notes on version change
+    // Check for release notes on version change (in demo mode, always fetches latest)
     api.releaseNotesCheck().then(({ show, version, content }) => {
       if (show) {
         set({ showWhatsNew: true, whatsNewContent: content, whatsNewVersion: version });
