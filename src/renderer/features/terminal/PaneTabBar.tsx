@@ -16,6 +16,7 @@ interface PaneTabBarProps {
   onAddTerminal: () => void;
   onTabDrop?: (tabId: string) => void;
   onReorder?: (orderedTabIds: string[]) => void;
+  digitOffset?: number;
 }
 
 export function PaneTabBar({
@@ -31,6 +32,7 @@ export function PaneTabBar({
   onAddTerminal,
   onTabDrop,
   onReorder,
+  digitOffset = 0,
 }: PaneTabBarProps) {
   const [dropIndex, setDropIndex] = useState<number | null>(null);
 
@@ -95,10 +97,10 @@ export function PaneTabBar({
     <div
       className={`
         flex items-center gap-0.5 px-1.5 py-0.5 shrink-0 select-none overflow-x-auto overflow-y-hidden
-        border-b transition-colors duration-100
+        border-b transition-colors duration-100 bg-surface-secondary
         ${isSplit && isActivePane
-          ? 'bg-surface-secondary/60 border-accent/30'
-          : 'bg-surface-secondary/40 border-chrome-subtle/50'
+          ? 'border-chrome-subtle'
+          : 'border-chrome-subtle/50'
         }
       `}
       onDragOver={handleDragOver}
@@ -127,7 +129,7 @@ export function PaneTabBar({
               onClick={() => onTabClick(tab.id)}
               onClose={() => onTabClose(tab.id)}
               onRename={(newName) => onTabRename(tab.id, newName)}
-              hint={!isSplit && idx < 9 ? <KbdDigit shortcutId="switchTerminalTab" digit={idx + 1} /> : undefined}
+              hint={idx + digitOffset < 9 ? <KbdDigit shortcutId="switchTerminalTab" digit={idx + 1 + digitOffset} /> : undefined}
             />
             {/* Drop indicator after last tab */}
             {idx === tabs.length - 1 && dropIndex === tabs.length && (
@@ -140,11 +142,11 @@ export function PaneTabBar({
       {/* Add terminal button */}
       <button
         onClick={(e) => { e.stopPropagation(); onAddTerminal(); }}
-        className="w-5 h-5 flex items-center justify-center rounded text-content-tertiary hover:text-content-primary hover:bg-surface-tertiary transition-colors shrink-0"
+        className="h-5 flex items-center justify-center gap-0.5 rounded px-1 text-content-tertiary hover:text-content-primary hover:bg-surface-tertiary transition-colors shrink-0"
         title="New terminal"
       >
         <PlusIcon />
-        {!isSplit && <Kbd shortcutId="newTerminal" />}
+        <Kbd shortcutId="newTerminal" />
       </button>
 
     </div>

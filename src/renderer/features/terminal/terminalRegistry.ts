@@ -25,6 +25,13 @@ function getTerminalTheme(): Record<string, string> {
   };
 }
 
+function applyTerminalTheme(terminal: import('@xterm/xterm').Terminal): void {
+  terminal.options.theme = getTerminalTheme();
+  if (terminal.rows > 0) {
+    terminal.refresh(0, terminal.rows - 1);
+  }
+}
+
 export interface TerminalInstance {
   terminalId: string;
   projectId: string;
@@ -133,12 +140,6 @@ export async function createInstance(terminalId: string, projectId: string): Pro
     });
     cleanup.push(unsubExit);
 
-    // Listen for theme changes
-    const unsubTheme = window.electronAPI.onThemeChanged(() => {
-      terminal.options.theme = getTerminalTheme();
-    });
-    cleanup.push(unsubTheme);
-
     try {
       // Spawn the PTY (open/fit happens later via attachInstance once in DOM)
       await window.electronAPI.terminalCreate(projectId, terminalId);
@@ -236,4 +237,10 @@ export function focusInstance(terminalId: string): void {
   const instance = instances.get(terminalId);
   if (!instance) return;
   instance.terminal.focus();
+}
+
+export function refreshAllTerminalThemes(): void {
+  for (const instance of instances.values()) {
+    applyTerminalTheme(instance.terminal);
+  }
 }

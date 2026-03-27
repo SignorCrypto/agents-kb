@@ -2,9 +2,10 @@ import { useState, useRef, useEffect, useCallback, memo } from 'react';
 import { useKanbanStore } from '../hooks/useKanbanStore';
 import { NotificationBadge } from './NotificationBadge';
 import { formatDuration, useNow } from '../utils/duration';
-import type { Job, JobStatus, FollowUp } from '../types/index';
+import type { Job, JobStatus, FollowUp, KanbanColumn } from '../types/index';
 import { getProjectColor, getThinkingDisplay, normalizeEffortForThinking } from '../types/index';
 import { BrainIcon } from './Icons';
+import { StageIcon, getStageShortLabel } from './StageIcon';
 
 interface JobCardProps {
   job: Job;
@@ -169,7 +170,7 @@ function PhaseDurations({ job, now }: { job: Job; now: number }) {
   const settings = useKanbanStore((s) => s.settings);
   const availableModels = useKanbanStore((s) => s.availableModels);
   const pausedMs = getEffectivePausedMs(job, now);
-  const phases: { label: string; value: string; dotColor: string; active: boolean }[] = [];
+  const phases: { stage: Extract<KanbanColumn, 'planning' | 'development'>; value: string; active: boolean }[] = [];
 
   const errorEnd = job.erroredAt ? new Date(job.erroredAt).getTime() : null;
 
@@ -181,9 +182,8 @@ function PhaseDurations({ job, now }: { job: Job; now: number }) {
     const phasePaused = job.column === 'planning' ? pausedMs : (job.totalPausedMs || 0);
     if (end) {
       phases.push({
-        label: 'PLN',
+        stage: 'planning',
         value: formatDuration(new Date(job.planningStartedAt).getTime() - (job.planningElapsedMs || 0), end, phasePaused),
-        dotColor: 'bg-column-planning',
         active: isLive,
       });
     }
@@ -200,9 +200,8 @@ function PhaseDurations({ job, now }: { job: Job; now: number }) {
       : Math.max(0, (job.totalPausedMs || 0) - (job.planningPausedMs || 0));
     if (end) {
       phases.push({
-        label: 'DEV',
+        stage: 'development',
         value: formatDuration(new Date(job.developmentStartedAt).getTime() - (job.developmentElapsedMs || 0), end, phasePaused),
-        dotColor: 'bg-column-development',
         active: isLive,
       });
     }
@@ -259,15 +258,14 @@ function PhaseDurations({ job, now }: { job: Job; now: number }) {
       {phases.length > 0 && (
         <div className="flex items-center gap-3">
           {phases.map((p) => (
-            <div key={p.label} className="flex items-center gap-1.5">
-              <span className="relative flex h-1.5 w-1.5 shrink-0">
-                {p.active && (
-                  <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${p.dotColor} opacity-50`} />
-                )}
-                <span className={`relative inline-flex rounded-full h-1.5 w-1.5 ${p.dotColor}`} />
-              </span>
+            <div key={p.stage} className="flex items-center gap-1.5">
+              <StageIcon
+                stage={p.stage}
+                size={11}
+                className={`shrink-0 ${p.active ? 'animate-pulse text-content-secondary' : 'text-content-tertiary'}`}
+              />
               <span className="text-[9px] font-bold tracking-[0.1em] text-content-tertiary uppercase">
-                {p.label}
+                {getStageShortLabel(p.stage)}
               </span>
               <span className="text-[11px] font-mono font-semibold text-content-secondary tabular-nums leading-none">
                 {p.value}

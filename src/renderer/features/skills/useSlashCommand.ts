@@ -1,7 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import type { Skill } from '../../types';
-
-const skillsCache = new Map<string, Skill[]>();
+import { useSkillsCatalog } from './useSkillsCatalog';
 
 function filterSkills(skills: Skill[], query: string, max: number): Skill[] {
   if (!query) return skills.slice(0, max);
@@ -58,33 +57,13 @@ export interface UseSlashCommandResult {
 }
 
 export function useSlashCommand({ projectId, text, cursorPosition }: UseSlashCommandOptions): UseSlashCommandResult {
+  const { skills } = useSkillsCatalog(projectId);
   const [state, setState] = useState<SlashCommandState>({
     isOpen: false,
     matches: [],
     selectedIndex: 0,
     slashStart: -1,
   });
-  const skillsRef = useRef<Skill[]>([]);
-  const fetchingRef = useRef<string | null>(null);
-
-  const ensureSkills = useCallback(async (pid: string) => {
-    const cacheKey = pid || '__global__';
-    if (skillsCache.has(cacheKey)) {
-      skillsRef.current = skillsCache.get(cacheKey)!;
-      return;
-    }
-    if (fetchingRef.current === cacheKey) return;
-    fetchingRef.current = cacheKey;
-    try {
-      const skills = await window.electronAPI.skillsList(pid || undefined);
-      skillsCache.set(cacheKey, skills);
-      skillsRef.current = skills;
-    } catch {
-      skillsRef.current = [];
-    } finally {
-      fetchingRef.current = null;
-    }
-  }, []);
 
   // Detect "/" trigger and update matches
   useEffect(() => {
@@ -125,16 +104,14 @@ export function useSlashCommand({ projectId, text, cursorPosition }: UseSlashCom
       return;
     }
 
-    ensureSkills(projectId).then(() => {
-      const matches = filterSkills(skillsRef.current, query, 10);
-      setState({
-        isOpen: matches.length > 0 || query.length === 0,
-        matches,
-        selectedIndex: 0,
-        slashStart: slashPos,
-      });
+    const matches = filterSkills(skills, query, 10);
+    setState({
+      isOpen: matches.length > 0 || query.length === 0,
+      matches,
+      selectedIndex: 0,
+      slashStart: slashPos,
     });
-  }, [projectId, text, cursorPosition, ensureSkills]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cursorPosition, projectId, skills, state.isOpen, text]);
 
   const dismiss = useCallback(() => {
     setState((s) => ({ ...s, isOpen: false }));

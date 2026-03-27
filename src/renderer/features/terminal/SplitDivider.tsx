@@ -35,8 +35,13 @@ export function SplitDivider({ containerRef, onResize }: SplitDividerProps) {
 
   return (
     <div
-      className="w-1 cursor-col-resize hover:bg-accent/40 active:bg-accent/60 transition-colors shrink-0"
+      className="relative w-0 shrink-0 cursor-col-resize group"
       onMouseDown={onMouseDown}
-    />
+    >
+      {/* Visible border line */}
+      <div className="absolute inset-y-0 -left-px w-px bg-chrome-subtle/70 group-hover:bg-accent/60 group-active:bg-accent/80 transition-colors" />
+      {/* Wider invisible drag target */}
+      <div className="absolute inset-y-0 -left-1.5 w-3" />
+    </div>
   );
 }

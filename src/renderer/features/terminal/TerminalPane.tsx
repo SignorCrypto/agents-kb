@@ -17,6 +17,7 @@ interface TerminalPaneProps {
   onAddTerminal: () => void;
   onTabDrop?: (tabId: string) => void;
   onReorder?: (orderedTabIds: string[]) => void;
+  digitOffset?: number;
 }
 
 export function TerminalPane({
@@ -34,6 +35,7 @@ export function TerminalPane({
   onAddTerminal,
   onTabDrop,
   onReorder,
+  digitOffset,
 }: TerminalPaneProps) {
   // Preserve tab order from tabIds
   const paneTabs = tabIds.map((id) => allTabs.find((t) => t.id === id)).filter(Boolean) as TerminalTab[];
@@ -57,6 +59,7 @@ export function TerminalPane({
         onAddTerminal={onAddTerminal}
         onTabDrop={onTabDrop}
         onReorder={onReorder}
+        digitOffset={digitOffset}
       />
       <div className="flex-1 min-h-0 relative">
         {paneTabs.map((tab) => (

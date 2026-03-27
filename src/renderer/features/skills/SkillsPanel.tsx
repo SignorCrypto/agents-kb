@@ -1,37 +1,16 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { useElectronAPI } from '../../hooks/useElectronAPI';
 import { useKanbanStore } from '../../hooks/useKanbanStore';
 import { LightbulbIcon, SearchIcon, XIcon } from '../../components/Icons';
 import type { Skill } from '../../types/index';
+import { useSkillsCatalog } from './useSkillsCatalog';
 
 export function SkillsPanel({ onClose }: { onClose: () => void }) {
-  const api = useElectronAPI();
   const selectedProjectId = useKanbanStore((s) => s.selectedProjectId);
-  const [skills, setSkills] = useState<Skill[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { skills, loading } = useSkillsCatalog(selectedProjectId ?? undefined);
   const [search, setSearch] = useState('');
   const dialogRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    api
-      .skillsList(selectedProjectId ?? undefined)
-      .then((result) => {
-        if (!cancelled) setSkills(result);
-      })
-      .catch(() => {
-        if (!cancelled) setSkills([]);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [api, selectedProjectId]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {

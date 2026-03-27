@@ -14,6 +14,7 @@ import { SplashScreen } from './components/SplashScreen';
 import { Kbd } from './components/Kbd';
 import { UpdateButton } from './components/UpdateButton';
 import { XIcon } from './components/Icons';
+import { refreshAllTerminalThemes } from './features/terminal/terminalRegistry';
 import { getProjectColor } from '../shared/types';
 
 function applyDarkClass(isDark: boolean) {
@@ -42,6 +43,13 @@ export default function App() {
   const setShowAddTerminal = useKanbanStore((s) => s.setShowAddTerminal);
   const theme = useKanbanStore((s) => s.settings.theme);
 
+  const applyResolvedTheme = useCallback((actual: 'light' | 'dark') => {
+    applyDarkClass(actual === 'dark');
+    requestAnimationFrame(() => {
+      refreshAllTerminalThemes();
+    });
+  }, []);
+
   const selectedProject = useMemo(
     () => selectedProjectId ? projects.find((p) => p.id === selectedProjectId) : null,
     [projects, selectedProjectId],
@@ -64,11 +72,9 @@ export default function App() {
   // Sync dark class with actual resolved theme from main process
   useEffect(() => {
     const api = window.electronAPI;
-    // Get initial actual theme
-    api.themeGetActual().then((actual) => applyDarkClass(actual === 'dark'));
-    // Listen for changes (system theme change or user toggle)
-    return api.onThemeChanged((actual) => applyDarkClass(actual === 'dark'));
-  }, [theme]);
+    void api.themeGetActual().then(applyResolvedTheme);
+    return api.onThemeChanged(applyResolvedTheme);
+  }, [applyResolvedTheme, theme]);
 
   const toggleNewJob = useCallback(() => {
     if (projects.length > 0) setShowNewJobDialog(!showNewJobDialog);

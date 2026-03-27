@@ -32,6 +32,19 @@ export function BrainIcon({ size = 16, ...props }: IconProps) {
   );
 }
 
+export function NotebookPenIcon({ size = 16, ...props }: IconProps) {
+  return (
+    <svg {...defaults(size, props, '0 0 24 24', 2)}>
+      <path d="M13.4 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7.4" />
+      <path d="M2 6h4" />
+      <path d="M2 10h4" />
+      <path d="M2 14h4" />
+      <path d="M2 18h4" />
+      <path d="M21.378 5.626a1 1 0 1 0-3.004-3.004l-5.01 5.012a2 2 0 0 0-.506.854l-.837 2.87a.5.5 0 0 0 .62.62l2.87-.837a2 2 0 0 0 .854-.506z" />
+    </svg>
+  );
+}
+
 export function LightbulbIcon({ size = 16, ...props }: IconProps) {
   return (
     <svg {...defaults(size, props, '0 0 24 24', 2)}>
@@ -95,6 +108,15 @@ export function CheckIcon({ size = 16, ...props }: IconProps) {
   );
 }
 
+export function CircleCheckBigIcon({ size = 16, ...props }: IconProps) {
+  return (
+    <svg {...defaults(size, props, '0 0 24 24', 2)}>
+      <path d="M21.801 10A10 10 0 1 1 17 3.335" />
+      <path d="m9 11 3 3L22 4" />
+    </svg>
+  );
+}
+
 export function SearchIcon({ size = 16, ...props }: IconProps) {
   return (
     <svg {...defaults(size, props)}>
@@ -111,6 +133,16 @@ export function BranchIcon({ size = 16, ...props }: IconProps) {
       <circle cx="6" cy="3" r="2" />
       <circle cx="12" cy="5" r="2" />
       <path d="M12 7c0 3-2 4-6 6" />
+    </svg>
+  );
+}
+
+export function CodeXmlIcon({ size = 16, ...props }: IconProps) {
+  return (
+    <svg {...defaults(size, props, '0 0 24 24', 2)}>
+      <path d="m18 16 4-4-4-4" />
+      <path d="m6 8-4 4 4 4" />
+      <path d="m14.5 4-5 16" />
     </svg>
   );
 }

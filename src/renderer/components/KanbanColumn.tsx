@@ -1,5 +1,6 @@
 import { useKanbanStore } from '../hooks/useKanbanStore';
 import { JobCard } from './JobCard';
+import { StageIcon } from './StageIcon';
 import type { Job, KanbanColumn as ColumnType } from '../types/index';
 
 interface KanbanColumnProps {
@@ -7,12 +8,6 @@ interface KanbanColumnProps {
   label: string;
   jobs: Job[];
 }
-
-const columnColors: Record<ColumnType, string> = {
-  planning: 'bg-column-planning',
-  development: 'bg-column-development',
-  done: 'bg-column-done',
-};
 
 export function KanbanColumn({ column, label, jobs }: KanbanColumnProps) {
   const selectJob = useKanbanStore((s) => s.selectJob);
@@ -25,7 +20,7 @@ export function KanbanColumn({ column, label, jobs }: KanbanColumnProps) {
     <div className="flex-1 min-w-[280px] flex flex-col" onClick={handleEmptyClick}>
       {/* Column header */}
       <div className="flex items-center gap-2 px-2 pb-3">
-        <div className={`w-2.5 h-2.5 rounded-full ${columnColors[column]}`} />
+        <StageIcon stage={column} size={14} className="shrink-0 text-content-tertiary" />
         <h2 className="text-sm font-semibold text-content-secondary">
           {label}
         </h2>

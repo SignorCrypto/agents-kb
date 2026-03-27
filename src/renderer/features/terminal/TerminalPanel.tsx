@@ -244,6 +244,7 @@ export function TerminalPanel() {
                     +{terminalTabs.length - 1}
                   </span>
                 )}
+                <Kbd shortcutId="toggleTerminal" />
               </>
             ) : (
               <span className="text-xs text-content-tertiary">Terminal<Kbd shortcutId="toggleTerminal" /></span>
@@ -290,6 +291,7 @@ export function TerminalPanel() {
                   onAddTerminal={() => handleAddTerminal('left')}
                   onTabDrop={handlePaneTabDrop('left')}
                   onReorder={(ids) => reorderPaneTabs('left', ids)}
+                  digitOffset={0}
                 />
               </div>
               <SplitDivider
@@ -316,6 +318,7 @@ export function TerminalPanel() {
                   onAddTerminal={() => handleAddTerminal('right')}
                   onTabDrop={handlePaneTabDrop('right')}
                   onReorder={(ids) => reorderPaneTabs('right', ids)}
+                  digitOffset={terminalSplit.leftTabIds.length}
                 />
               </div>
             </>

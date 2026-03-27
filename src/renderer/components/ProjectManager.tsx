@@ -10,6 +10,7 @@ import { PROJECT_COLORS, getProjectColor } from '../types/index';
 import { GitHistoryPanel } from '../features/git-history';
 import { GitPanel } from '../features/git-panel';
 import { NotificationBadge } from './NotificationBadge';
+import { StageIcon, getStageLabel } from './StageIcon';
 
 interface BranchStatus {
   name: string;
@@ -54,16 +55,6 @@ function areBranchStatusMapsEqual(left: Map<string, BranchStatus[]>, right: Map<
 }
 
 const COLUMN_ORDER: KanbanColumn[] = ['planning', 'development', 'done'];
-const COLUMN_DOT_CLASSES: Record<KanbanColumn, string> = {
-  planning: 'bg-column-planning',
-  development: 'bg-column-development',
-  done: 'bg-column-done',
-};
-const COLUMN_LABELS: Record<KanbanColumn, string> = {
-  planning: 'Planning',
-  development: 'Development',
-  done: 'Done',
-};
 
 type DetailTab = 'details' | 'claude-md';
 
@@ -368,9 +359,9 @@ function ProjectDetailDialog({
                       if (count === 0) return null;
                       return (
                         <span key={col} className="flex items-center gap-1">
-                          <span className={`inline-block w-1.5 h-1.5 rounded-full ${COLUMN_DOT_CLASSES[col]}`} />
+                          <StageIcon stage={col} size={12} className="shrink-0 text-content-tertiary" />
                           <span className="text-[11px] text-content-secondary">
-                            {count} {COLUMN_LABELS[col]}
+                            {count} {getStageLabel(col)}
                           </span>
                         </span>
                       );
@@ -819,8 +810,8 @@ export function ProjectManager() {
                     const count = stats!.counts[col];
                     if (count === 0) return null;
                     return (
-                      <span key={col} className="flex items-center gap-px">
-                        <span className={`inline-block w-1 h-1 rounded-full ${COLUMN_DOT_CLASSES[col]}`} />
+                      <span key={col} className="flex items-center gap-0.5">
+                        <StageIcon stage={col} size={10} className="shrink-0 text-content-tertiary" />
                         <span className="text-[10px] tabular-nums text-content-tertiary leading-none">{count}</span>
                       </span>
                     );

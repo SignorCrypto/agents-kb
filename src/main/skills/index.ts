@@ -3,6 +3,7 @@ import path from 'path';
 import os from 'os';
 import { ipcMain } from 'electron';
 import type { Skill } from '../../shared/types';
+import { getProjects } from '../store';
 
 const SKILL_FILENAME = 'SKILL.md';
 
@@ -11,6 +12,10 @@ const skillsCache = new Map<string, Skill[]>();
 
 export function setSkillsCache(projectPath: string, skills: Skill[]): void {
   skillsCache.set(projectPath, skills);
+}
+
+function skillKey(skill: Pick<Skill, 'source' | 'name'>): string {
+  return `${skill.source}:${skill.name}`;
 }
 
 function parseFrontmatter(content: string): Record<string, string> {
@@ -63,6 +68,32 @@ function readSkillsFromDir(dir: string, source: Skill['source']): Skill[] {
   return skills;
 }
 
+function mergeSkills(cached: Skill[], projectSkills: Skill[], globalSkills: Skill[]): Skill[] {
+  const merged = new Map<string, Skill>();
+
+  for (const skill of cached) {
+    if (skill.filePath) {
+      if (!fs.existsSync(skill.filePath)) continue;
+    } else if (skill.source === 'project') {
+      // Project skills are always filesystem-backed; if the source file is gone
+      // and the SDK did not provide a path, treat the entry as stale.
+      continue;
+    }
+
+    merged.set(skillKey(skill), skill);
+  }
+
+  for (const skill of projectSkills) {
+    merged.set(skillKey(skill), skill);
+  }
+
+  for (const skill of globalSkills) {
+    merged.set(skillKey(skill), skill);
+  }
+
+  return [...merged.values()];
+}
+
 export function listSkills(projectPath?: string): Skill[] {
   const globalDir = path.join(os.homedir(), '.claude', 'skills');
   const globalSkills = readSkillsFromDir(globalDir, 'global');
@@ -73,13 +104,15 @@ export function listSkills(projectPath?: string): Skill[] {
     projectSkills = readSkillsFromDir(projectDir, 'project');
   }
 
-  // Merge: SDK-cached skills first, then filesystem (project, global)
   const cached = projectPath ? skillsCache.get(projectPath) ?? [] : [];
-  return [...cached, ...projectSkills, ...globalSkills];
+  return mergeSkills(cached, projectSkills, globalSkills);
 }
 
 export function registerSkillsIpc(): void {
   ipcMain.handle('skills:list', (_event, projectId?: string) => {
-    return listSkills(projectId);
+    const projectPath = projectId
+      ? getProjects().find((project) => project.id === projectId)?.path
+      : undefined;
+    return listSkills(projectPath);
   });
 }

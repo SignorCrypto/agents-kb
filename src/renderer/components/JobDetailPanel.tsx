@@ -15,6 +15,7 @@ import { getProjectColor, getThinkingDisplay, normalizeEffortForThinking } from 
 import { BrainIcon, BranchIcon, MessagesSquareIcon, StopIcon, TrashIcon, XIcon } from './Icons';
 import { CopyButton } from './CopyButton';
 import { PlanMarkdown } from './PlanMarkdown';
+import { StageIcon, getStageShortLabel } from './StageIcon';
 
 /* ─── Streaming isolation containers (Step 1) ─── */
 
@@ -1421,7 +1422,7 @@ const DetailPhaseDurations = memo(function DetailPhaseDurations({ job, settings 
     pausedMs += now - new Date(job.waitingStartedAt).getTime();
   }
 
-  const phases: { label: string; value: string; accentColor: string; dotColor: string; active: boolean; tokens?: PhaseTokenUsage }[] = [];
+  const phases: { stage: 'planning' | 'development'; value: string; active: boolean; tokens?: PhaseTokenUsage }[] = [];
   const errorEnd = job.erroredAt ? new Date(job.erroredAt).getTime() : null;
 
   if (job.planningStartedAt) {
@@ -1432,10 +1433,8 @@ const DetailPhaseDurations = memo(function DetailPhaseDurations({ job, settings 
     const phasePaused = job.column === 'planning' ? pausedMs : (job.totalPausedMs || 0);
     if (end) {
       phases.push({
-        label: 'PLN',
+        stage: 'planning',
         value: formatDuration(new Date(job.planningStartedAt).getTime() - (job.planningElapsedMs || 0), end, phasePaused),
-        accentColor: 'border-l-column-planning',
-        dotColor: 'bg-column-planning',
         active: isLive,
         tokens: settings.showTokenUsage ? job.planningTokens : undefined,
       });
@@ -1453,10 +1452,8 @@ const DetailPhaseDurations = memo(function DetailPhaseDurations({ job, settings 
       : Math.max(0, (job.totalPausedMs || 0) - (job.planningPausedMs || 0));
     if (end) {
       phases.push({
-        label: 'DEV',
+        stage: 'development',
         value: formatDuration(new Date(job.developmentStartedAt).getTime() - (job.developmentElapsedMs || 0), end, devPaused),
-        accentColor: 'border-l-column-development',
-        dotColor: 'bg-column-development',
         active: isLive,
         tokens: settings.showTokenUsage ? job.developmentTokens : undefined,
       });
@@ -1515,10 +1512,14 @@ const DetailPhaseDurations = memo(function DetailPhaseDurations({ job, settings 
       {phases.length > 0 && (
         <div className="flex items-center gap-3">
           {phases.map((p) => (
-            <div key={p.label} className="flex items-center gap-1.5">
-              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${p.dotColor}`} />
+            <div key={p.stage} className="flex items-center gap-1.5">
+              <StageIcon
+                stage={p.stage}
+                size={11}
+                className={`shrink-0 ${p.active ? 'animate-pulse text-content-secondary' : 'text-content-tertiary'}`}
+              />
               <span className="text-[10px] font-medium text-content-tertiary uppercase tracking-wider">
-                {p.label}
+                {getStageShortLabel(p.stage)}
               </span>
               <span className="text-[11px] font-mono text-content-secondary tabular-nums">
                 {p.value}
