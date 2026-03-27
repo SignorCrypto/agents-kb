@@ -131,8 +131,9 @@ export function TerminalPanel() {
       return;
     }
 
-    setExpanded(true);
-  }, [expanded, setExpanded, hasTabs]);
+    // No terminals exist — open the "new terminal" modal directly
+    setShowAddPopover(true);
+  }, [expanded, setExpanded, hasTabs, setShowAddPopover]);
 
   const onDragStart = useCallback(
     (e: React.MouseEvent) => {
@@ -191,15 +192,6 @@ export function TerminalPanel() {
   const defaultAddProjectId = activeProjectId ?? selectedProjectId ?? projects[0]?.id ?? null;
   const showExpanded = expanded && hasTabs;
 
-  const wasEmptyExpandedRef = useRef(false);
-
-  useEffect(() => {
-    const isEmptyExpanded = expanded && !hasTabs;
-    if (isEmptyExpanded && !wasEmptyExpandedRef.current) {
-      setShowAddPopover(true);
-    }
-    wasEmptyExpandedRef.current = isEmptyExpanded;
-  }, [expanded, hasTabs, setShowAddPopover]);
 
   // Compute tab IDs for each pane
   const singlePaneTabIds = useMemo(
@@ -296,7 +288,6 @@ export function TerminalPanel() {
                   onTabClose={handleCloseTab}
                   onTabRename={renameTerminalTab}
                   onAddTerminal={() => handleAddTerminal('left')}
-                  onUnsplit={clearTerminalSplit}
                   onTabDrop={handlePaneTabDrop('left')}
                   onReorder={(ids) => reorderPaneTabs('left', ids)}
                 />
@@ -323,7 +314,6 @@ export function TerminalPanel() {
                   onTabClose={handleCloseTab}
                   onTabRename={renameTerminalTab}
                   onAddTerminal={() => handleAddTerminal('right')}
-                  onUnsplit={clearTerminalSplit}
                   onTabDrop={handlePaneTabDrop('right')}
                   onReorder={(ids) => reorderPaneTabs('right', ids)}
                 />

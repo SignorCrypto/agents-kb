@@ -209,8 +209,8 @@ function ProjectDetailDialog({
           <button
             onClick={() => setActiveTab('details')}
             className={`relative px-3 py-2 text-[11px] font-medium transition-colors ${activeTab === 'details'
-                ? 'text-content-primary'
-                : 'text-content-tertiary hover:text-content-secondary'
+              ? 'text-content-primary'
+              : 'text-content-tertiary hover:text-content-secondary'
               }`}
           >
             Details
@@ -221,8 +221,8 @@ function ProjectDetailDialog({
           <button
             onClick={() => setActiveTab('claude-md')}
             className={`relative px-3 py-2 text-[11px] font-medium font-mono transition-colors ${activeTab === 'claude-md'
-                ? 'text-content-primary'
-                : 'text-content-tertiary hover:text-content-secondary'
+              ? 'text-content-primary'
+              : 'text-content-tertiary hover:text-content-secondary'
               }`}
           >
             CLAUDE.md
@@ -317,8 +317,8 @@ function ProjectDetailDialog({
                         key={c.id}
                         onClick={() => onSetColor(c.id === PROJECT_COLORS[0].id ? null : c.id)}
                         className={`w-5 h-5 rounded-full transition-all duration-150 ${isActive
-                            ? 'ring-2 ring-offset-1 ring-offset-surface-elevated scale-110'
-                            : 'hover:scale-110'
+                          ? 'ring-2 ring-offset-1 ring-offset-surface-elevated scale-110'
+                          : 'hover:scale-110'
                           }`}
                         style={{
                           backgroundColor: c.hex,
@@ -711,8 +711,8 @@ export function ProjectManager() {
               onClick={() => selectProject(project.id)}
               style={isSelected ? { backgroundColor: projectColor + '0F' } : undefined}
               className={`group rounded-md cursor-grab active:cursor-grabbing transition-all duration-150 px-2 py-1.5 ${isSelected
-                  ? ''
-                  : 'hover:bg-surface-tertiary/60'
+                ? ''
+                : 'hover:bg-surface-tertiary/60'
                 } ${isDragOver && dragOverPosition === 'above' ? 'ring-t-2 ring-active-indicator' : ''}
                 ${isDragOver && dragOverPosition === 'below' ? 'ring-b-2 ring-active-indicator' : ''}`}
             >
@@ -732,8 +732,8 @@ export function ProjectManager() {
                     setGitHistoryProjectId(gitHistoryProjectId === project.id ? null : project.id);
                   }}
                   className={`p-0.5 rounded flex items-center justify-center transition-all shrink-0 ${gitHistoryProjectId === project.id
-                      ? 'opacity-100 text-content-secondary bg-surface-tertiary/70'
-                      : 'opacity-0 group-hover:opacity-100 text-content-tertiary hover:text-content-secondary hover:bg-surface-tertiary/50'
+                    ? 'opacity-100 text-content-secondary bg-surface-tertiary/70'
+                    : 'opacity-0 group-hover:opacity-100 text-content-tertiary hover:text-content-secondary hover:bg-surface-tertiary/50'
                     }`}
                   title={project.isGitRepo === false ? 'Initialize git' : 'Git history'}
                   aria-label={project.isGitRepo === false ? 'Initialize git' : 'Git history'}
@@ -751,8 +751,8 @@ export function ProjectManager() {
                     setDetailProjectId(isDetailOpen ? null : project.id);
                   }}
                   className={`p-0.5 rounded flex items-center justify-center transition-all shrink-0 ${isDetailOpen
-                      ? 'opacity-100 text-content-secondary bg-surface-tertiary/70'
-                      : 'opacity-0 group-hover:opacity-100 text-content-tertiary hover:text-content-secondary hover:bg-surface-tertiary/50'
+                    ? 'opacity-100 text-content-secondary bg-surface-tertiary/70'
+                    : 'opacity-0 group-hover:opacity-100 text-content-tertiary hover:text-content-secondary hover:bg-surface-tertiary/50'
                     }`}
                   title="Project details"
                   aria-label="Project details"
@@ -796,10 +796,10 @@ export function ProjectManager() {
                         }}
                         title={chipTitle}
                         className={`inline-flex items-center gap-0.5 px-1 py-px rounded text-[10px] font-medium leading-tight transition-colors ${canPush
-                            ? 'bg-column-development/10 text-column-development hover:bg-column-development/20 cursor-pointer'
-                            : isActionable
-                              ? 'bg-semantic-warning/10 text-semantic-warning hover:bg-semantic-warning/20 cursor-pointer'
-                              : 'text-content-tertiary bg-surface-tertiary/40'
+                          ? 'bg-column-development/10 text-column-development hover:bg-column-development/20 cursor-pointer'
+                          : isActionable
+                            ? 'bg-semantic-warning/10 text-semantic-warning hover:bg-semantic-warning/20 cursor-pointer'
+                            : 'text-content-tertiary bg-surface-tertiary/40'
                           }`}
                       >
                         <span className="truncate max-w-[64px]">{b.name}</span>
@@ -832,23 +832,25 @@ export function ProjectManager() {
         })}
       </div>
 
-      {/* Footer */}
-      <div className="shrink-0 border-t border-chrome-subtle/70 px-4 py-2 flex flex-col gap-1">
-        <button
-          onClick={() => setShowSkillsPanel(true)}
-          className="flex items-center gap-1.5 text-content-tertiary hover:text-content-secondary transition-colors"
-          title="Installed Skills"
-        >
-          <LightbulbIcon size={14} />
-          <span className="text-[11px]">Skills</span>
-        </button>
+
+      {/* Footer — settings & skills, matches terminal header height */}
+      <div className="shrink-0 border-t border-chrome-subtle/70 bg-surface-secondary flex items-center gap-3 px-2 py-1">
         <button
           onClick={() => setShowSettings(true)}
-          className="flex items-center gap-1.5 text-content-tertiary hover:text-content-secondary transition-colors"
+          className="flex items-center gap-1 text-content-tertiary hover:text-content-secondary transition-colors"
           title="Settings"
         >
           <SettingsIcon size={14} />
-          <span className="text-[11px]">Settings<Kbd shortcutId="openSettings" /></span>
+          <span className="text-xs font-medium">Settings</span>
+        </button>
+
+        <button
+          onClick={() => setShowSkillsPanel(true)}
+          className="flex items-center gap-1 text-content-tertiary hover:text-content-secondary transition-colors"
+          title="Installed Skills"
+        >
+          <LightbulbIcon size={14} />
+          <span className="text-xs font-medium">Skills</span>
         </button>
       </div>
 

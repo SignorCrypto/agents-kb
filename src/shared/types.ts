@@ -250,7 +250,7 @@ export const DEFAULT_SHORTCUTS: ShortcutBinding[] = [
   { id: "focusBranch", label: "Focus Branch (New Job)", keys: "mod+b", enabled: true },
   { id: "togglePlan", label: "Toggle Plan (New Job)", keys: "shift+tab", enabled: true },
   { id: "toggleTerminal", label: "Toggle Terminal", keys: "mod+`", enabled: true },
-  { id: "newTerminal", label: "New Terminal", keys: "ctrl+shift+`", enabled: true },
+  { id: "newTerminal", label: "New Terminal", keys: "mod+shift+`", enabled: true },
   { id: "switchTerminalTab", label: "Switch Terminal Tab (1–9)", keys: "mod", enabled: true },
 ];
 

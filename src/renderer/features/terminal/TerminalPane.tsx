@@ -15,7 +15,6 @@ interface TerminalPaneProps {
   onTabClose: (tabId: string) => void;
   onTabRename: (tabId: string, name: string) => void;
   onAddTerminal: () => void;
-  onUnsplit?: () => void;
   onTabDrop?: (tabId: string) => void;
   onReorder?: (orderedTabIds: string[]) => void;
 }
@@ -33,7 +32,6 @@ export function TerminalPane({
   onTabClose,
   onTabRename,
   onAddTerminal,
-  onUnsplit,
   onTabDrop,
   onReorder,
 }: TerminalPaneProps) {
@@ -57,7 +55,6 @@ export function TerminalPane({
         onTabClose={onTabClose}
         onTabRename={onTabRename}
         onAddTerminal={onAddTerminal}
-        onUnsplit={onUnsplit}
         onTabDrop={onTabDrop}
         onReorder={onReorder}
       />

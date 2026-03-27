@@ -14,7 +14,6 @@ interface PaneTabBarProps {
   onTabClose: (tabId: string) => void;
   onTabRename: (tabId: string, name: string) => void;
   onAddTerminal: () => void;
-  onUnsplit?: () => void;
   onTabDrop?: (tabId: string) => void;
   onReorder?: (orderedTabIds: string[]) => void;
 }
@@ -30,7 +29,6 @@ export function PaneTabBar({
   onTabClose,
   onTabRename,
   onAddTerminal,
-  onUnsplit,
   onTabDrop,
   onReorder,
 }: PaneTabBarProps) {
@@ -149,18 +147,6 @@ export function PaneTabBar({
         {!isSplit && <Kbd shortcutId="newTerminal" />}
       </button>
 
-      {/* Unsplit button — only in split mode */}
-      {isSplit && onUnsplit && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onUnsplit(); }}
-          className="w-5 h-5 flex items-center justify-center rounded text-content-tertiary hover:text-content-primary hover:bg-surface-tertiary transition-colors shrink-0"
-          title="Unsplit"
-        >
-          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="2" y="2" width="12" height="12" rx="2" />
-          </svg>
-        </button>
-      )}
     </div>
   );
 }

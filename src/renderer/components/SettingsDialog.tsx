@@ -276,11 +276,11 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
               <div className="text-[11px] text-content-tertiary mt-0.5">
                 {installedEditors
                   ? (() => {
-                      const found = EDITOR_OPTIONS.filter((o) => installedEditors[o.value]);
-                      return found.length > 0
-                        ? `Detected: ${found.map((o) => o.label).join(', ')}`
-                        : 'No supported editors detected';
-                    })()
+                    const found = EDITOR_OPTIONS.filter((o) => installedEditors[o.value]);
+                    return found.length > 0
+                      ? `Detected: ${found.map((o) => o.label).join(', ')}`
+                      : 'No supported editors detected';
+                  })()
                   : 'Detecting installed editors\u2026'}
               </div>
             </div>
@@ -503,11 +503,6 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                   onCancelRecording={() => setRecordingId(null)}
                 />
               ))}
-          </div>
-
-          <div className="border-t border-chrome-subtle/40" />
-
-          <div className="space-y-1">
             {local.shortcuts
               .filter((s) => MODIFIER_SHORTCUT_IDS.has(s.id))
               .map((shortcut) => (
@@ -521,6 +516,8 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                 />
               ))}
           </div>
+
+
 
           <div className="border-t border-chrome-subtle/40" />
 
@@ -649,8 +646,8 @@ function ShortcutRow({
   return (
     <div
       className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${isRecording
-          ? 'bg-focus-ring/8 ring-1 ring-focus-ring/30'
-          : 'hover:bg-surface-tertiary/40'
+        ? 'bg-focus-ring/8 ring-1 ring-focus-ring/30'
+        : 'hover:bg-surface-tertiary/40'
         }`}
     >
       {/* Toggle */}
@@ -679,8 +676,8 @@ function ShortcutRow({
           onClick={onStartRecording}
           disabled={!shortcut.enabled}
           className={`group relative px-2.5 py-1 rounded-md border min-w-[72px] flex items-center justify-center transition-all ${shortcut.enabled
-              ? 'border-chrome/60 bg-surface-tertiary/40 hover:border-chrome-focus/60 hover:bg-surface-tertiary/80 cursor-pointer'
-              : 'border-chrome/30 bg-surface-tertiary/20 opacity-40 cursor-not-allowed'
+            ? 'border-chrome/60 bg-surface-tertiary/40 hover:border-chrome-focus/60 hover:bg-surface-tertiary/80 cursor-pointer'
+            : 'border-chrome/30 bg-surface-tertiary/20 opacity-40 cursor-not-allowed'
             }`}
           title={shortcut.enabled ? 'Click to rebind' : ''}
         >
@@ -710,8 +707,8 @@ function ModifierShortcutRow({
   return (
     <div
       className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${isRecording
-          ? 'bg-focus-ring/8 ring-1 ring-focus-ring/30'
-          : 'hover:bg-surface-tertiary/40'
+        ? 'bg-focus-ring/8 ring-1 ring-focus-ring/30'
+        : 'hover:bg-surface-tertiary/40'
         }`}
     >
       {/* Toggle */}
@@ -740,8 +737,8 @@ function ModifierShortcutRow({
           onClick={onStartRecording}
           disabled={!shortcut.enabled}
           className={`group relative px-2.5 py-1 rounded-md border min-w-[72px] flex items-center justify-center transition-all ${shortcut.enabled
-              ? 'border-chrome/60 bg-surface-tertiary/40 hover:border-chrome-focus/60 hover:bg-surface-tertiary/80 cursor-pointer'
-              : 'border-chrome/30 bg-surface-tertiary/20 opacity-40 cursor-not-allowed'
+            ? 'border-chrome/60 bg-surface-tertiary/40 hover:border-chrome-focus/60 hover:bg-surface-tertiary/80 cursor-pointer'
+            : 'border-chrome/30 bg-surface-tertiary/20 opacity-40 cursor-not-allowed'
             }`}
           title={shortcut.enabled ? 'Click to rebind' : ''}
         >
