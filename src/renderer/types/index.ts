@@ -115,6 +115,9 @@ export interface ElectronAPI {
   appGetVersion: () => Promise<string>;
   appIsDemoMode: () => Promise<boolean>;
 
+  // Release Notes
+  releaseNotesCheck: () => Promise<{ show: boolean; version: string; content: string }>;
+
   // Updater
   updaterCheck: () => Promise<void>;
   updaterDownload: () => Promise<void>;

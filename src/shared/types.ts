@@ -263,6 +263,7 @@ export interface AppSettings {
   notificationsEnabled: boolean;
   deleteCompletedJobsOnCommit: boolean;
   permissionMode: PermissionMode;
+  lastSeenVersion: string;
 }
 
 export const DEFAULT_SHORTCUTS: ShortcutBinding[] = [
@@ -314,6 +315,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   notificationsEnabled: true,
   deleteCompletedJobsOnCommit: false,
   permissionMode: "bypassPermissions",
+  lastSeenVersion: "0.0.0",
 };
 
 /* ─── File Rewind ─── */

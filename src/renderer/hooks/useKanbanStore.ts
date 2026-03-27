@@ -20,6 +20,9 @@ interface KanbanState {
   terminalSplit: TerminalSplit | null;
   activeSplitPane: 'left' | 'right';
   promptHistoryJobId: string | null;
+  showWhatsNew: boolean;
+  whatsNewContent: string | null;
+  whatsNewVersion: string | null;
   settings: AppSettings;
   /** Model catalog fetched from the SDK at app startup */
   availableModels: ModelOption[];
@@ -70,6 +73,7 @@ interface KanbanState {
   addTerminalTabToPane: (projectId: string, name: string, pane: 'left' | 'right') => TerminalTab;
   reorderPaneTabs: (pane: 'left' | 'right' | 'single', orderedTabIds: string[]) => void;
   setPromptHistoryJobId: (id: string | null) => void;
+  setShowWhatsNew: (show: boolean) => void;
   setSettings: (settings: AppSettings) => void;
   setAvailableModels: (models: ModelOption[]) => void;
   setInstalledEditors: (editors: Record<string, boolean>) => void;
@@ -196,6 +200,9 @@ export const useKanbanStore = create<KanbanState>((set, get) => ({
   terminalSplit: null,
   activeSplitPane: 'left',
   promptHistoryJobId: null,
+  showWhatsNew: false,
+  whatsNewContent: null,
+  whatsNewVersion: null,
   settings: DEFAULT_SETTINGS,
   availableModels: [],
   installedEditors: null,
@@ -547,6 +554,7 @@ export const useKanbanStore = create<KanbanState>((set, get) => ({
     return { terminalSplit: { ...s.terminalSplit, rightTabIds: orderedTabIds } };
   }),
   setPromptHistoryJobId: (id) => set({ promptHistoryJobId: id }),
+  setShowWhatsNew: (show) => set({ showWhatsNew: show }),
   setSettings: (settings) => set({ settings }),
   setAvailableModels: (models) => set({ availableModels: models }),
   setInstalledEditors: (editors) => set({ installedEditors: editors }),
@@ -587,6 +595,13 @@ export const useKanbanStore = create<KanbanState>((set, get) => ({
         terminalExpanded: true,
       });
     }
+
+    // Check for release notes on version change
+    api.releaseNotesCheck().then(({ show, version, content }) => {
+      if (show) {
+        set({ showWhatsNew: true, whatsNewContent: content, whatsNewVersion: version });
+      }
+    }).catch(() => { /* silently skip if release notes check fails */ });
 
     // Fetch model catalog from SDK (cached in main process)
     api.modelsList().then((models) => {

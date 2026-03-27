@@ -9,6 +9,7 @@ import { SettingsDialog } from './components/SettingsDialog';
 import { SkillsPanel } from './features/skills';
 import { TerminalPanel } from './features/terminal';
 import { PromptHistoryDialog } from './components/PromptHistoryDialog';
+import { WhatsNewDialog } from './components/WhatsNewDialog';
 import { SetupScreen } from './components/SetupScreen';
 import { SplashScreen } from './components/SplashScreen';
 import { Kbd } from './components/Kbd';
@@ -36,6 +37,10 @@ export default function App() {
   const showSkillsPanel = useKanbanStore((s) => s.showSkillsPanel);
   const setShowSkillsPanel = useKanbanStore((s) => s.setShowSkillsPanel);
   const promptHistoryJobId = useKanbanStore((s) => s.promptHistoryJobId);
+  const showWhatsNew = useKanbanStore((s) => s.showWhatsNew);
+  const whatsNewContent = useKanbanStore((s) => s.whatsNewContent);
+  const whatsNewVersion = useKanbanStore((s) => s.whatsNewVersion);
+  const setShowWhatsNew = useKanbanStore((s) => s.setShowWhatsNew);
   const projects = useKanbanStore((s) => s.projects);
   const selectedProjectId = useKanbanStore((s) => s.selectedProjectId);
   const selectProject = useKanbanStore((s) => s.selectProject);
@@ -187,6 +192,13 @@ export default function App() {
       {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} />}
       {showSkillsPanel && <SkillsPanel onClose={() => setShowSkillsPanel(false)} />}
       {promptHistoryJobId && <PromptHistoryDialog />}
+      {showWhatsNew && whatsNewContent && whatsNewVersion && (
+        <WhatsNewDialog
+          version={whatsNewVersion}
+          content={whatsNewContent}
+          onClose={() => setShowWhatsNew(false)}
+        />
+      )}
     </div>
   );
 }
