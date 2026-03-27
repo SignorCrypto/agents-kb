@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { Project, Job, OutputEntry, RawMessage, PendingQuestion, AppSettings, CliHealthStatus, ModelOption, TerminalTab, TerminalSplit } from '../types/index';
 import { DEFAULT_SETTINGS } from '../types/index';
+import { DEMO_TERMINAL_TABS } from '../../shared/demo-terminals';
 
 interface KanbanState {
   cliHealth: CliHealthStatus | null;
@@ -570,13 +571,22 @@ export const useKanbanStore = create<KanbanState>((set, get) => ({
         set({ settings: nextSettings });
       }).catch(() => { /* keep current settings if refresh fails */ });
     };
-    const [projects, jobs, settings] = await Promise.all([
+    const [projects, jobs, settings, isDemo] = await Promise.all([
       api.projectsList(),
       api.jobsList(),
       api.settingsGet(),
+      api.appIsDemoMode(),
     ]);
     get().setJobs(jobs);
     set({ projects, settings });
+
+    if (isDemo && DEMO_TERMINAL_TABS.length > 0) {
+      set({
+        terminalTabs: DEMO_TERMINAL_TABS,
+        activeTerminalId: DEMO_TERMINAL_TABS[0].id,
+        terminalExpanded: true,
+      });
+    }
 
     // Fetch model catalog from SDK (cached in main process)
     api.modelsList().then((models) => {

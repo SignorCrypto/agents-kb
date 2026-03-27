@@ -28,6 +28,7 @@ import { sessionManager } from './session-manager';
 import { notifyInputNeeded, notifyJobComplete, notifyJobError, notifyPlanReady } from './notifications';
 import { checkCliHealth, spawnLogin, fetchAccountInfo } from './cli-health';
 import { isDemoMode, getDemoProjects, getDemoJobs, getDemoSettings, getDemoBranchStatuses } from './demo-loader';
+import { getDemoTerminalWelcome } from '../shared/demo-terminals';
 import { isGitRepoRoot, listBranches, checkoutBranch, createBranch, gitStageAll, gitStageFiles, gitCommit, getBranchesStatus, gitPush, gitDeleteBranch, getUnpushedCommits, listChangedFilesDetailed, getFileDiff, gitDiscardFile, gitDiscardAllChanges } from './git-snapshot';
 import { setSkillsCache, registerSkillsIpc } from './skills/index';
 import { registerGitHistoryIpc } from './git-history/index';
@@ -1093,7 +1094,7 @@ function enqueueTitleGeneration(
   });
 }
 
-function registerDemoHandlers(): void {
+function registerDemoHandlers(getWindow: WindowGetter): void {
   // Data handlers
   ipcMain.handle('cli:check-health', () => ({ installed: true, authenticated: true, version: '1.0.0 (demo)' }));
   ipcMain.handle('projects:list', () => getDemoProjects());
@@ -1101,6 +1102,26 @@ function registerDemoHandlers(): void {
   ipcMain.handle('settings:get', () => getDemoSettings());
   ipcMain.handle('theme:get-actual', () => (nativeTheme.shouldUseDarkColors ? 'dark' : 'light'));
   ipcMain.handle('git:branches-status', (_event, projectId: string) => getDemoBranchStatuses(projectId));
+
+  // Fake PTY: canned welcome after create, echo input so typing is visible (no real shell)
+  ipcMain.handle(
+    'terminal:create',
+    (_event, { terminalId }: { projectId: string | null; terminalId: string }) => {
+      const welcome = getDemoTerminalWelcome(terminalId);
+      setImmediate(() => {
+        sendToRenderer(getWindow, 'terminal:data', { terminalId, data: welcome });
+      });
+    },
+  );
+  ipcMain.handle(
+    'terminal:write',
+    (_event, { terminalId, data }: { terminalId: string; data: string }) => {
+      sendToRenderer(getWindow, 'terminal:data', { terminalId, data });
+    },
+  );
+  ipcMain.handle('terminal:resize', () => null);
+  ipcMain.handle('terminal:kill', () => null);
+  ipcMain.handle('terminal:kill-project', () => null);
 
   // Mutation channels — all no-ops
   const noOpChannels = [
@@ -1120,13 +1141,12 @@ function registerDemoHandlers(): void {
     'skills:list',
     'models:list',
     'account:info',
-    'terminal:create', 'terminal:write', 'terminal:resize', 'terminal:kill', 'terminal:kill-project',
   ];
   for (const channel of noOpChannels) {
     ipcMain.handle(channel, () => null);
   }
 
-  console.log('[Demo Mode] Registered demo IPC handlers — all mutations are no-ops');
+  console.log('[Demo Mode] Registered demo IPC handlers — mutations are no-ops except fake terminals');
 }
 
 /**
@@ -1153,10 +1173,11 @@ const pendingRollbacks = new Map<string, PendingRollback>();
 export function registerIpcHandlers(getWindow: WindowGetter): void {
   // App version — always available
   ipcMain.handle('app:get-version', () => app.getVersion());
+  ipcMain.handle('app:is-demo-mode', () => isDemoMode());
 
   // --- Demo mode: register lightweight canned-data handlers and skip real registration ---
   if (isDemoMode()) {
-    registerDemoHandlers();
+    registerDemoHandlers(getWindow);
     return;
   }
 

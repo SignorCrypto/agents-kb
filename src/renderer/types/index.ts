@@ -113,6 +113,7 @@ export interface ElectronAPI {
   // App
   appGetPlatform: () => NodeJS.Platform;
   appGetVersion: () => Promise<string>;
+  appIsDemoMode: () => Promise<boolean>;
 
   // Updater
   updaterCheck: () => Promise<void>;

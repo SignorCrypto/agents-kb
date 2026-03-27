@@ -137,6 +137,7 @@ const api: ElectronAPI = {
   // App
   appGetPlatform: () => process.platform,
   appGetVersion: () => ipcRenderer.invoke('app:get-version'),
+  appIsDemoMode: () => ipcRenderer.invoke('app:is-demo-mode'),
 
   // Updater
   updaterCheck: () => ipcRenderer.invoke('updater:check'),
