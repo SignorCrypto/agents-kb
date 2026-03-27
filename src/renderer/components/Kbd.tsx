@@ -5,10 +5,12 @@ const isMac =
 
 const symbols: Record<string, [mac: string, other: string]> = {
   mod: ['\u2318', 'Ctrl'],
+  ctrl: ['\u2303', 'Ctrl'],
   enter: ['\u21B5', '\u21B5'],
   shift: ['\u21E7', 'Shift'],
   alt: ['\u2325', 'Alt'],
   tab: ['\u21E5', 'Tab'],
+  '`': ['`', '`'],
 };
 
 function resolve(key: string): string {

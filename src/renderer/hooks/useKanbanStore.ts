@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Project, Job, OutputEntry, RawMessage, PendingQuestion, AppSettings, CliHealthStatus, ModelOption, TerminalTab } from '../types/index';
+import type { Project, Job, OutputEntry, RawMessage, PendingQuestion, AppSettings, CliHealthStatus, ModelOption, TerminalTab, TerminalSplit } from '../types/index';
 import { DEFAULT_SETTINGS } from '../types/index';
 
 interface KanbanState {
@@ -16,6 +16,8 @@ interface KanbanState {
   terminalTabs: TerminalTab[];
   activeTerminalId: string | null;
   terminalExpanded: boolean;
+  terminalSplit: TerminalSplit | null;
+  activeSplitPane: 'left' | 'right';
   promptHistoryJobId: string | null;
   settings: AppSettings;
   /** Model catalog fetched from the SDK at app startup */
@@ -58,6 +60,14 @@ interface KanbanState {
   setTerminalExpanded: (expanded: boolean) => void;
   clearTerminalTabs: () => void;
   toggleTerminalForProject: (projectId: string) => void;
+  setTerminalSplit: (leftTabIds: string[], rightTabIds: string[]) => void;
+  clearTerminalSplit: () => void;
+  setTerminalSplitRatio: (ratio: number) => void;
+  setActiveSplitPane: (pane: 'left' | 'right') => void;
+  setActivePaneTab: (pane: 'left' | 'right', tabId: string) => void;
+  moveTabToPane: (tabId: string, targetPane: 'left' | 'right') => void;
+  addTerminalTabToPane: (projectId: string, name: string, pane: 'left' | 'right') => TerminalTab;
+  reorderPaneTabs: (pane: 'left' | 'right' | 'single', orderedTabIds: string[]) => void;
   setPromptHistoryJobId: (id: string | null) => void;
   setSettings: (settings: AppSettings) => void;
   setAvailableModels: (models: ModelOption[]) => void;
@@ -84,6 +94,8 @@ export const useKanbanStore = create<KanbanState>((set, get) => ({
   terminalTabs: [],
   activeTerminalId: null,
   terminalExpanded: false,
+  terminalSplit: null,
+  activeSplitPane: 'left',
   promptHistoryJobId: null,
   settings: DEFAULT_SETTINGS,
   availableModels: [],
@@ -198,37 +210,98 @@ export const useKanbanStore = create<KanbanState>((set, get) => ({
   setShowAddTerminal: (show) => set({ showAddTerminal: show }),
   addTerminalTab: (projectId, name) => {
     const tab: TerminalTab = { id: crypto.randomUUID(), projectId, name, createdAt: new Date().toISOString() };
-    set((s) => ({
-      terminalTabs: [...s.terminalTabs, tab],
-      activeTerminalId: tab.id,
-      terminalExpanded: true,
-    }));
+    set((s) => {
+      const newTabs = [...s.terminalTabs, tab];
+      if (s.terminalSplit) {
+        const pane = s.activeSplitPane;
+        const newLeft = pane === 'left' ? [...s.terminalSplit.leftTabIds, tab.id] : s.terminalSplit.leftTabIds;
+        const newRight = pane === 'right' ? [...s.terminalSplit.rightTabIds, tab.id] : s.terminalSplit.rightTabIds;
+        const newActiveLeft = pane === 'left' ? tab.id : s.terminalSplit.activeLeftTabId;
+        const newActiveRight = pane === 'right' ? tab.id : s.terminalSplit.activeRightTabId;
+        return {
+          terminalTabs: newTabs,
+          terminalSplit: { ...s.terminalSplit, leftTabIds: newLeft, rightTabIds: newRight, activeLeftTabId: newActiveLeft, activeRightTabId: newActiveRight },
+          activeTerminalId: tab.id,
+          terminalExpanded: true,
+        };
+      }
+
+      return { terminalTabs: newTabs, activeTerminalId: tab.id, terminalExpanded: true };
+    });
     return tab;
   },
   removeTerminalTab: (tabId) => set((s) => {
     const tabs = s.terminalTabs.filter((t) => t.id !== tabId);
     let activeId = s.activeTerminalId;
-    if (activeId === tabId) {
-      // Pick the previous tab in the same project group, or the first remaining tab
-      const removed = s.terminalTabs.find((t) => t.id === tabId);
-      const siblings = tabs.filter((t) => t.projectId === removed?.projectId);
-      activeId = siblings.length > 0 ? siblings[siblings.length - 1].id : (tabs.length > 0 ? tabs[tabs.length - 1].id : null);
+    let split = s.terminalSplit;
+    const removedIndex = s.terminalTabs.findIndex((t) => t.id === tabId);
+
+    if (split) {
+      const inLeft = split.leftTabIds.includes(tabId);
+      const inRight = split.rightTabIds.includes(tabId);
+
+      if (inLeft || inRight) {
+        const newLeft = split.leftTabIds.filter((id) => id !== tabId);
+        const newRight = split.rightTabIds.filter((id) => id !== tabId);
+
+        // If a pane becomes empty, auto-unsplit
+        if (newLeft.length === 0 || newRight.length === 0) {
+          const remaining = newLeft.length > 0 ? newLeft : newRight;
+          // Preserve active from the surviving pane (capture before nullifying split)
+          const survivingActive = newLeft.length > 0 ? split.activeLeftTabId : split.activeRightTabId;
+          split = null;
+          activeId = (survivingActive && remaining.includes(survivingActive))
+            ? survivingActive
+            : remaining[remaining.length - 1] ?? null;
+        } else {
+          // Update active tab in the affected pane
+          let activeLeft = split.activeLeftTabId;
+          let activeRight = split.activeRightTabId;
+          if (inLeft && activeLeft === tabId) {
+            activeLeft = newLeft[newLeft.length - 1];
+          }
+          if (inRight && activeRight === tabId) {
+            activeRight = newRight[newRight.length - 1];
+          }
+          split = { ...split, leftTabIds: newLeft, rightTabIds: newRight, activeLeftTabId: activeLeft, activeRightTabId: activeRight };
+          // Update global activeTerminalId
+          activeId = s.activeSplitPane === 'left' ? activeLeft : activeRight;
+        }
+      }
+    } else if (activeId === tabId) {
+      const fallbackIndex = removedIndex <= 0 ? 0 : removedIndex - 1;
+      activeId = tabs[fallbackIndex]?.id ?? tabs[tabs.length - 1]?.id ?? null;
     }
+
     return {
       terminalTabs: tabs,
       activeTerminalId: activeId,
       terminalExpanded: tabs.length > 0 ? s.terminalExpanded : false,
+      terminalSplit: split,
     };
   }),
   renameTerminalTab: (tabId, name) => set((s) => ({
     terminalTabs: s.terminalTabs.map((t) => t.id === tabId ? { ...t, name } : t),
   })),
-  setActiveTerminal: (tabId) => set({ activeTerminalId: tabId }),
+  setActiveTerminal: (tabId) => set((s) => {
+    const result: Partial<KanbanState> = { activeTerminalId: tabId };
+    if (s.terminalSplit) {
+      if (s.terminalSplit.leftTabIds.includes(tabId)) {
+        result.terminalSplit = { ...s.terminalSplit, activeLeftTabId: tabId };
+        result.activeSplitPane = 'left';
+      } else if (s.terminalSplit.rightTabIds.includes(tabId)) {
+        result.terminalSplit = { ...s.terminalSplit, activeRightTabId: tabId };
+        result.activeSplitPane = 'right';
+      }
+    }
+    return result;
+  }),
   setTerminalExpanded: (expanded) => set({ terminalExpanded: expanded }),
   clearTerminalTabs: () => set({
     terminalTabs: [],
     activeTerminalId: null,
     terminalExpanded: false,
+    terminalSplit: null,
   }),
   toggleTerminalForProject: (projectId) => set((s) => {
     const hasTabsForProject = s.terminalTabs.some((t) => t.projectId === projectId);
@@ -239,12 +312,134 @@ export const useKanbanStore = create<KanbanState>((set, get) => ({
         return { terminalExpanded: !s.terminalExpanded };
       }
 
-      // Otherwise switch to the first tab of this project and expand the panel.
       const firstTab = s.terminalTabs.find((t) => t.projectId === projectId);
-      return { activeTerminalId: firstTab?.id ?? s.activeTerminalId, terminalExpanded: true };
+      if (!firstTab) return { terminalExpanded: true };
+
+      const result: Partial<KanbanState> = {
+        activeTerminalId: firstTab.id,
+        terminalExpanded: true,
+      };
+
+      if (s.terminalSplit) {
+        if (s.terminalSplit.leftTabIds.includes(firstTab.id)) {
+          result.terminalSplit = { ...s.terminalSplit, activeLeftTabId: firstTab.id };
+          result.activeSplitPane = 'left';
+        } else if (s.terminalSplit.rightTabIds.includes(firstTab.id)) {
+          result.terminalSplit = { ...s.terminalSplit, activeRightTabId: firstTab.id };
+          result.activeSplitPane = 'right';
+        }
+      }
+
+      return result;
     }
-    // No terminals for this project — open the new terminal dialog
-    return { showAddTerminal: true };
+    // No terminals for this project — expand the panel and open the new terminal dialog
+    return { terminalExpanded: true, showAddTerminal: true };
+  }),
+  setTerminalSplit: (leftTabIds, rightTabIds) => set({
+    terminalSplit: {
+      leftTabIds,
+      rightTabIds,
+      activeLeftTabId: leftTabIds[0],
+      activeRightTabId: rightTabIds[0],
+      dividerRatio: 0.5,
+    },
+    activeTerminalId: leftTabIds[0],
+    activeSplitPane: 'left',
+  }),
+  clearTerminalSplit: () => set((s) => ({
+    terminalSplit: null,
+    activeTerminalId: s.terminalSplit
+      ? (s.activeSplitPane === 'left' ? s.terminalSplit.activeLeftTabId : s.terminalSplit.activeRightTabId)
+      : s.activeTerminalId,
+  })),
+  setTerminalSplitRatio: (ratio) => set((s) => ({
+    terminalSplit: s.terminalSplit
+      ? { ...s.terminalSplit, dividerRatio: Math.max(0.2, Math.min(0.8, ratio)) }
+      : null,
+  })),
+  setActiveSplitPane: (pane) => set((s) => ({
+    activeSplitPane: pane,
+    activeTerminalId: s.terminalSplit
+      ? (pane === 'left' ? s.terminalSplit.activeLeftTabId : s.terminalSplit.activeRightTabId)
+      : s.activeTerminalId,
+  })),
+  setActivePaneTab: (pane, tabId) => set((s) => {
+    if (!s.terminalSplit) return {};
+    const update: Partial<TerminalSplit> = pane === 'left'
+      ? { activeLeftTabId: tabId }
+      : { activeRightTabId: tabId };
+    return {
+      terminalSplit: { ...s.terminalSplit, ...update },
+      activeTerminalId: s.activeSplitPane === pane ? tabId : s.activeTerminalId,
+    };
+  }),
+  moveTabToPane: (tabId, targetPane) => set((s) => {
+    if (!s.terminalSplit) return {};
+    const { leftTabIds, rightTabIds, activeLeftTabId, activeRightTabId } = s.terminalSplit;
+    const sourcePane = leftTabIds.includes(tabId) ? 'left' : rightTabIds.includes(tabId) ? 'right' : null;
+    if (!sourcePane || sourcePane === targetPane) return {};
+
+    const newLeft = sourcePane === 'left' ? leftTabIds.filter((id) => id !== tabId) : [...leftTabIds];
+    const newRight = sourcePane === 'right' ? rightTabIds.filter((id) => id !== tabId) : [...rightTabIds];
+    if (targetPane === 'left') newLeft.push(tabId);
+    else newRight.push(tabId);
+
+    // If source pane is now empty, auto-unsplit
+    if (newLeft.length === 0 || newRight.length === 0) {
+      return { terminalSplit: null, activeTerminalId: tabId };
+    }
+
+    let newActiveLeft = activeLeftTabId;
+    let newActiveRight = activeRightTabId;
+    if (sourcePane === 'left' && activeLeftTabId === tabId) {
+      newActiveLeft = newLeft[newLeft.length - 1];
+    }
+    if (sourcePane === 'right' && activeRightTabId === tabId) {
+      newActiveRight = newRight[newRight.length - 1];
+    }
+    // Set moved tab as active in target pane
+    if (targetPane === 'left') newActiveLeft = tabId;
+    else newActiveRight = tabId;
+
+    return {
+      terminalSplit: { ...s.terminalSplit, leftTabIds: newLeft, rightTabIds: newRight, activeLeftTabId: newActiveLeft, activeRightTabId: newActiveRight },
+      activeSplitPane: targetPane,
+      activeTerminalId: tabId,
+    };
+  }),
+  addTerminalTabToPane: (projectId, name, pane) => {
+    const tab: TerminalTab = { id: crypto.randomUUID(), projectId, name, createdAt: new Date().toISOString() };
+    set((s) => {
+      const newTabs = [...s.terminalTabs, tab];
+      if (!s.terminalSplit) {
+        return { terminalTabs: newTabs, activeTerminalId: tab.id, terminalExpanded: true };
+      }
+      const newLeft = pane === 'left' ? [...s.terminalSplit.leftTabIds, tab.id] : s.terminalSplit.leftTabIds;
+      const newRight = pane === 'right' ? [...s.terminalSplit.rightTabIds, tab.id] : s.terminalSplit.rightTabIds;
+      const newActiveLeft = pane === 'left' ? tab.id : s.terminalSplit.activeLeftTabId;
+      const newActiveRight = pane === 'right' ? tab.id : s.terminalSplit.activeRightTabId;
+      return {
+        terminalTabs: newTabs,
+        terminalSplit: { ...s.terminalSplit, leftTabIds: newLeft, rightTabIds: newRight, activeLeftTabId: newActiveLeft, activeRightTabId: newActiveRight },
+        activeTerminalId: tab.id,
+        activeSplitPane: pane,
+        terminalExpanded: true,
+      };
+    });
+    return tab;
+  },
+  reorderPaneTabs: (pane, orderedTabIds) => set((s) => {
+    if (pane === 'single' || !s.terminalSplit) {
+      const reordered = orderedTabIds
+        .map((id) => s.terminalTabs.find((t) => t.id === id))
+        .filter((tab): tab is TerminalTab => Boolean(tab));
+      return { terminalTabs: reordered };
+    }
+    // Split mode: reorder within the pane
+    if (pane === 'left') {
+      return { terminalSplit: { ...s.terminalSplit, leftTabIds: orderedTabIds } };
+    }
+    return { terminalSplit: { ...s.terminalSplit, rightTabIds: orderedTabIds } };
   }),
   setPromptHistoryJobId: (id) => set({ promptHistoryJobId: id }),
   setSettings: (settings) => set({ settings }),

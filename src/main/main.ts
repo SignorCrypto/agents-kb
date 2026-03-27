@@ -15,6 +15,71 @@ import { setupAutoUpdater } from './auto-updater';
 
 let mainWindow: BrowserWindow | null = null;
 
+interface ParsedModifierShortcut {
+  mod: boolean;
+  shift: boolean;
+  alt: boolean;
+}
+
+function parseModifierShortcut(keys: string): ParsedModifierShortcut {
+  const parts = keys.toLowerCase().split('+');
+  return {
+    mod: parts.includes('mod'),
+    shift: parts.includes('shift'),
+    alt: parts.includes('alt'),
+  };
+}
+
+function modifiersMatch(
+  parsed: ParsedModifierShortcut,
+  input: Electron.Input,
+  ignoreShift = false,
+): boolean {
+  const modPressed = Boolean(input.meta || input.control);
+  const shiftPressed = Boolean(input.shift);
+  const altPressed = Boolean(input.alt);
+
+  const modMatch = parsed.mod ? modPressed : !modPressed;
+  const shiftMatch = ignoreShift || (parsed.shift ? shiftPressed : !shiftPressed);
+  const altMatch = parsed.alt ? altPressed : !altPressed;
+
+  return modMatch && shiftMatch && altMatch;
+}
+
+function getShortcutDigit(input: Electron.Input): number | null {
+  const code = typeof input.code === 'string' ? input.code : '';
+  const codeMatch = /^(?:Digit|Numpad)([1-9])$/.exec(code);
+  if (codeMatch) return Number(codeMatch[1]);
+
+  const key = typeof input.key === 'string' ? input.key : '';
+  const keyMatch = /^[1-9]$/.exec(key);
+  if (keyMatch) return Number(keyMatch[0]);
+
+  return null;
+}
+
+function getSwitchTerminalTabDigit(input: Electron.Input): number | null {
+  const shortcut = getSettings().shortcuts.find((binding) => binding.id === 'switchTerminalTab');
+  if (!shortcut?.enabled || !shortcut.keys) return null;
+
+  const digit = getShortcutDigit(input);
+  if (digit === null) return null;
+
+  return modifiersMatch(parseModifierShortcut(shortcut.keys), input, true) ? digit : null;
+}
+
+function registerWindowShortcuts(window: BrowserWindow): void {
+  window.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') return;
+
+    const digit = getSwitchTerminalTabDigit(input);
+    if (digit === null) return;
+
+    event.preventDefault();
+    window.webContents.send('shortcut:switch-terminal-tab', digit);
+  });
+}
+
 const createWindow = () => {
   const isDark = nativeTheme.shouldUseDarkColors;
   const isMac = process.platform === 'darwin';
@@ -39,6 +104,8 @@ const createWindow = () => {
       nodeIntegration: false,
     },
   });
+
+  registerWindowShortcuts(mainWindow);
 
   // Load the renderer
   if (process.env.ELECTRON_RENDERER_URL) {

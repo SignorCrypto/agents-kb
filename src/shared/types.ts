@@ -249,10 +249,9 @@ export const DEFAULT_SHORTCUTS: ShortcutBinding[] = [
   { id: "focusProject", label: "Focus Project (New Job)", keys: "mod+p", enabled: true },
   { id: "focusBranch", label: "Focus Branch (New Job)", keys: "mod+b", enabled: true },
   { id: "togglePlan", label: "Toggle Plan (New Job)", keys: "shift+tab", enabled: true },
-  { id: "toggleTerminal", label: "Toggle Terminal", keys: "mod+t", enabled: true },
-  { id: "newTerminal", label: "New Terminal", keys: "mod+shift+t", enabled: true },
-  { id: "switchTerminalProject", label: "Switch Terminal Project (1–9)", keys: "mod", enabled: true },
-  { id: "switchTerminalTab", label: "Switch Terminal Tab (1–9)", keys: "mod+shift", enabled: true },
+  { id: "toggleTerminal", label: "Toggle Terminal", keys: "mod+`", enabled: true },
+  { id: "newTerminal", label: "New Terminal", keys: "ctrl+shift+`", enabled: true },
+  { id: "switchTerminalTab", label: "Switch Terminal Tab (1–9)", keys: "mod", enabled: true },
 ];
 
 export const DEFAULT_COMMIT_PROMPT =
@@ -336,6 +335,14 @@ export interface TerminalTab {
   projectId: string;
   name: string;
   createdAt: string;
+}
+
+export interface TerminalSplit {
+  leftTabIds: string[];
+  rightTabIds: string[];
+  activeLeftTabId: string;
+  activeRightTabId: string;
+  dividerRatio: number;
 }
 
 /* ─── Kanban ─── */

@@ -128,6 +128,11 @@ const api: ElectronAPI = {
     ipcRenderer.on('terminal:exit', handler);
     return () => ipcRenderer.removeListener('terminal:exit', handler);
   },
+  onSwitchTerminalTab: (callback) => {
+    const handler = (_event: Electron.IpcRendererEvent, index: number) => callback(index);
+    ipcRenderer.on('shortcut:switch-terminal-tab', handler);
+    return () => ipcRenderer.removeListener('shortcut:switch-terminal-tab', handler);
+  },
 
   // App
   appGetPlatform: () => process.platform,

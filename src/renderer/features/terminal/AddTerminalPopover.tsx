@@ -8,13 +8,15 @@ import { Kbd } from '../../components/Kbd';
 
 interface AddTerminalDialogProps {
   defaultProjectId: string | null;
+  pane?: 'left' | 'right' | null;
   onClose: () => void;
 }
 
-export function AddTerminalPopover({ defaultProjectId, onClose }: AddTerminalDialogProps) {
+export function AddTerminalPopover({ defaultProjectId, pane, onClose }: AddTerminalDialogProps) {
   const projects = useKanbanStore((s) => s.projects);
   const terminalTabs = useKanbanStore((s) => s.terminalTabs);
   const addTerminalTab = useKanbanStore((s) => s.addTerminalTab);
+  const addTerminalTabToPane = useKanbanStore((s) => s.addTerminalTabToPane);
 
   const [projectId, setProjectId] = useState<string>(defaultProjectId ?? projects[0]?.id ?? '');
   const [name, setName] = useState('');
@@ -49,10 +51,14 @@ export function AddTerminalPopover({ defaultProjectId, onClose }: AddTerminalDia
   const handleSubmit = useCallback(
     () => {
       if (!projectId || !name.trim()) return;
-      addTerminalTab(projectId, name.trim());
+      if (pane) {
+        addTerminalTabToPane(projectId, name.trim(), pane);
+      } else {
+        addTerminalTab(projectId, name.trim());
+      }
       onClose();
     },
-    [projectId, name, addTerminalTab, onClose],
+    [projectId, name, pane, addTerminalTab, addTerminalTabToPane, onClose],
   );
 
   useShortcut('submitForm', handleSubmit, {

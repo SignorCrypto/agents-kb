@@ -7,7 +7,7 @@ import { JobDetailPanel } from './components/JobDetailPanel';
 import { NewJobDialog } from './components/NewJobDialog';
 import { SettingsDialog } from './components/SettingsDialog';
 import { SkillsPanel } from './features/skills';
-import { TerminalPanel, AddTerminalPopover } from './features/terminal';
+import { TerminalPanel } from './features/terminal';
 import { PromptHistoryDialog } from './components/PromptHistoryDialog';
 import { SetupScreen } from './components/SetupScreen';
 import { SplashScreen } from './components/SplashScreen';
@@ -39,7 +39,6 @@ export default function App() {
   const selectedProjectId = useKanbanStore((s) => s.selectedProjectId);
   const selectProject = useKanbanStore((s) => s.selectProject);
   const toggleTerminalForProject = useKanbanStore((s) => s.toggleTerminalForProject);
-  const showAddTerminal = useKanbanStore((s) => s.showAddTerminal);
   const setShowAddTerminal = useKanbanStore((s) => s.setShowAddTerminal);
   const theme = useKanbanStore((s) => s.settings.theme);
 
@@ -92,6 +91,7 @@ export default function App() {
       setTerminalExpanded(!terminalExpanded);
     } else {
       // No terminals at all — open the new terminal dialog
+      setTerminalExpanded(true);
       setShowAddTerminal(true);
     }
   }, [selectedProjectId, toggleTerminalForProject, terminalTabs.length, terminalExpanded, setTerminalExpanded, setShowAddTerminal]);
@@ -180,12 +180,6 @@ export default function App() {
       {showNewJobDialog && <NewJobDialog />}
       {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} />}
       {showSkillsPanel && <SkillsPanel onClose={() => setShowSkillsPanel(false)} />}
-      {showAddTerminal && (
-        <AddTerminalPopover
-          defaultProjectId={selectedProjectId ?? projects[0]?.id ?? null}
-          onClose={() => setShowAddTerminal(false)}
-        />
-      )}
       {promptHistoryJobId && <PromptHistoryDialog />}
     </div>
   );

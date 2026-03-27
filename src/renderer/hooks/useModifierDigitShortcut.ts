@@ -3,7 +3,6 @@ import { useKanbanStore } from './useKanbanStore';
 
 interface ParsedModifiers {
   mod: boolean;
-  shift: boolean;
   alt: boolean;
 }
 
@@ -11,7 +10,6 @@ function parseModifiers(keys: string): ParsedModifiers {
   const parts = keys.toLowerCase().split('+');
   return {
     mod: parts.includes('mod'),
-    shift: parts.includes('shift'),
     alt: parts.includes('alt'),
   };
 }
@@ -19,9 +17,19 @@ function parseModifiers(keys: string): ParsedModifiers {
 function modifiersMatch(parsed: ParsedModifiers, e: KeyboardEvent): boolean {
   const modPressed = e.metaKey || e.ctrlKey;
   const modMatch = parsed.mod ? modPressed : !modPressed;
-  const shiftMatch = parsed.shift ? e.shiftKey : !e.shiftKey;
+  // Ignore shift state — some keyboard layouts require Shift to type digits.
   const altMatch = parsed.alt ? e.altKey : !e.altKey;
-  return modMatch && shiftMatch && altMatch;
+  return modMatch && altMatch;
+}
+
+function getDigit(e: KeyboardEvent): number | null {
+  const codeMatch = /^Digit([1-9])$/.exec(e.code);
+  if (codeMatch) return Number(codeMatch[1]);
+
+  const keyMatch = /^[1-9]$/.exec(e.key);
+  if (keyMatch) return Number(keyMatch[0]);
+
+  return null;
 }
 
 /**
@@ -46,14 +54,15 @@ export function useModifierDigitShortcut(
 
     const parsed = parseModifiers(keys);
     const handler = (e: KeyboardEvent) => {
-      const digit = parseInt(e.key);
-      if (digit >= 1 && digit <= 9 && modifiersMatch(parsed, e)) {
+      const digit = getDigit(e);
+      if (digit !== null && modifiersMatch(parsed, e)) {
         e.preventDefault();
         callback(digit);
       }
     };
 
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
+    // Capture so focused xterm instances can't swallow the event before the app sees it.
+    window.addEventListener('keydown', handler, true);
+    return () => window.removeEventListener('keydown', handler, true);
   }, [enabled, keys, callback]);
 }

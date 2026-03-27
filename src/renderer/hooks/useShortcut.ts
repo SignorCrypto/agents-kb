@@ -3,6 +3,7 @@ import { useKanbanStore } from './useKanbanStore';
 
 interface ParsedShortcut {
   mod: boolean;
+  ctrl: boolean;
   shift: boolean;
   alt: boolean;
   key: string;
@@ -13,6 +14,7 @@ function parse(keys: string): ParsedShortcut {
   const key = parts[parts.length - 1];
   return {
     mod: parts.includes('mod'),
+    ctrl: parts.includes('ctrl'),
     shift: parts.includes('shift'),
     alt: parts.includes('alt'),
     key,
@@ -20,11 +22,19 @@ function parse(keys: string): ParsedShortcut {
 }
 
 function matches(parsed: ParsedShortcut, e: KeyboardEvent): boolean {
-  const modPressed = e.metaKey || e.ctrlKey;
-  const modMatch = parsed.mod ? modPressed : !modPressed;
+  if (parsed.ctrl) {
+    // "ctrl" = specifically ctrlKey, NOT metaKey
+    if (!e.ctrlKey || e.metaKey) return false;
+  } else if (parsed.mod) {
+    // "mod" = metaKey (Mac) or ctrlKey (Windows/Linux)
+    if (!(e.metaKey || e.ctrlKey)) return false;
+  } else {
+    // Neither mod nor ctrl — require both to be released
+    if (e.metaKey || e.ctrlKey) return false;
+  }
   const shiftMatch = parsed.shift ? e.shiftKey : !e.shiftKey;
   const altMatch = parsed.alt ? e.altKey : !e.altKey;
-  return modMatch && shiftMatch && altMatch && e.key.toLowerCase() === parsed.key;
+  return shiftMatch && altMatch && e.key.toLowerCase() === parsed.key;
 }
 
 /**

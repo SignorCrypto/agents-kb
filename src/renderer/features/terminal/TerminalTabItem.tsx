@@ -1,8 +1,10 @@
 import { useState, useRef, useEffect, useCallback, type ReactNode } from 'react';
-import { XIcon, TerminalIcon } from '../../components/Icons';
+import { XIcon } from '../../components/Icons';
 
 interface TerminalTabItemProps {
+  tabId: string;
   name: string;
+  projectColor?: string;
   isActive: boolean;
   isReady: boolean;
   exitCode: number | null;
@@ -13,7 +15,9 @@ interface TerminalTabItemProps {
 }
 
 export function TerminalTabItem({
+  tabId,
   name,
+  projectColor,
   isActive,
   isReady,
   exitCode,
@@ -25,6 +29,7 @@ export function TerminalTabItem({
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(name);
   const inputRef = useRef<HTMLInputElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (editing) {
@@ -71,29 +76,48 @@ export function TerminalTabItem({
     [onClose],
   );
 
+  const handleDragStart = useCallback(
+    (e: React.DragEvent) => {
+      e.dataTransfer.setData('application/terminal-tab-id', tabId);
+      e.dataTransfer.effectAllowed = 'move';
+      if (buttonRef.current) buttonRef.current.style.opacity = '0.4';
+    },
+    [tabId],
+  );
+
+  const handleDragEnd = useCallback(() => {
+    if (buttonRef.current) buttonRef.current.style.opacity = '';
+  }, []);
+
   return (
     <button
+      ref={buttonRef}
+      draggable={!editing}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
       onClick={(e) => { e.stopPropagation(); onClick(); }}
       onDoubleClick={handleDoubleClick}
       className={`
         group flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium
-        transition-colors duration-100 select-none shrink-0
+        transition-colors duration-100 select-none min-w-0
         ${isActive
           ? 'bg-surface-tertiary/80 text-content-primary'
           : 'text-content-tertiary hover:text-content-secondary hover:bg-surface-tertiary/40'
         }
       `}
     >
-      {/* Status icon */}
-      <TerminalIcon
-        size={10}
-        className={`shrink-0 ${
+      {/* Color dot */}
+      <span
+        className={`shrink-0 w-2 h-2 rounded-full ${
           exitCode !== null
-            ? 'text-content-tertiary'
+            ? 'opacity-50'
             : isReady
-              ? 'text-content-primary'
-              : 'text-content-tertiary animate-pulse'
+              ? isActive
+                ? 'opacity-100'
+                : 'opacity-80'
+              : 'opacity-75 animate-pulse'
         }`}
+        style={{ backgroundColor: projectColor || 'currentColor' }}
       />
 
       {/* Name (editable) */}

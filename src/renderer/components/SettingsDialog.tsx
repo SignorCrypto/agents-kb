@@ -34,7 +34,7 @@ function eventToKeys(e: KeyboardEvent): string | null {
   return parts.join('+');
 }
 
-const MODIFIER_SHORTCUT_IDS = new Set(['switchTerminalProject', 'switchTerminalTab']);
+const MODIFIER_SHORTCUT_IDS = new Set(['switchTerminalTab']);
 const MODIFIER_KEYS = new Set(['mod', 'shift', 'alt']);
 
 /** Strip trailing non-modifier key from a shortcut string, keeping only modifier prefix. */
