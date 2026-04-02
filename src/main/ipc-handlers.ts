@@ -104,6 +104,7 @@ type WindowGetter = () => BrowserWindow | null;
 
 const stepHistoryTracker = new JobStepHistoryTracker();
 const titleGenerationQueue = new TitleGenerationQueue();
+const pendingTitleTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 // --- Dynamic model catalog from SDK ---
 let cachedDynamicModels: DynamicModelInfo[] | null = null;
@@ -1696,10 +1697,15 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
 
     saveJob(job);
 
-    // Generate title in background (non-blocking)
+    // Generate title after a short delay (non-blocking)
     const titleProject = getProjects().find(p => p.id === projectId);
     if (titleProject) {
-      enqueueTitleGeneration(job.id, prompt, getWindow);
+      const timerKey = job.id;
+      clearTimeout(pendingTitleTimers.get(timerKey));
+      pendingTitleTimers.set(timerKey, setTimeout(() => {
+        pendingTitleTimers.delete(timerKey);
+        enqueueTitleGeneration(job.id, prompt, getWindow);
+      }, 5000));
     }
 
     await startClaudeSession(job, getWindow, batchedSender, skipPlanning ? 'dev' : 'plan');
@@ -1729,6 +1735,13 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
   ipcMain.handle('jobs:delete', async (_event, jobId: string, options?: { rollback?: boolean }) => {
     sessionManager.kill(jobId);
     stepHistoryTracker.discardStep(jobId);
+    // Cancel any pending delayed title timers for this job
+    for (const [key, timer] of pendingTitleTimers) {
+      if (key === jobId || key.startsWith(`${jobId}:`)) {
+        clearTimeout(timer);
+        pendingTitleTimers.delete(key);
+      }
+    }
     titleGenerationQueue.cancel(jobId);
     pendingRollbacks.delete(jobId);
     const job = getJob(jobId);
@@ -2042,10 +2055,15 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
       );
       sendToRenderer(getWindow, 'job:status-changed', updated);
 
-      // Generate title for the follow-up in background, with job context
+      // Generate title for the follow-up after a short delay, with job context
       if (project) {
         const prevContext = (job.title || job.prompt) + (job.summaryText ? `\n\nPrevious result: ${job.summaryText.slice(0, 300)}` : '');
-        enqueueTitleGeneration(jobId, prompt, getWindow, followUps.length - 1, prevContext);
+        const timerKey = `${jobId}:${followUps.length - 1}`;
+        clearTimeout(pendingTitleTimers.get(timerKey));
+        pendingTitleTimers.set(timerKey, setTimeout(() => {
+          pendingTitleTimers.delete(timerKey);
+          enqueueTitleGeneration(jobId, prompt, getWindow, followUps.length - 1, prevContext);
+        }, 5000));
       }
 
       if (images?.length) pendingImages.set(jobId, images);
