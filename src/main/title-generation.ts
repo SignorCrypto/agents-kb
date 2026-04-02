@@ -1,6 +1,9 @@
 import { query } from "./sdk";
 import type { EffortLevel, ModelChoice } from "../shared/types";
 
+const TITLE_TIMEOUT_MS = 15_000;
+const TITLE_MAX_RETRIES = 2;
+
 const TITLE_SCHEMA = {
   type: "object",
   properties: {
@@ -26,6 +29,7 @@ export interface TitleGenerationRequest {
 
 interface QueuedTitleRequest extends TitleGenerationRequest {
   canceled: boolean;
+  retries: number;
 }
 
 export async function runClaudeTitleQuery(
@@ -44,42 +48,50 @@ export async function runClaudeTitleQuery(
     sdkOptions.thinking = { type: "disabled" };
   }
 
-  for await (const msg of query({
-    prompt,
-    options: sdkOptions,
-  })) {
-    const m = msg as {
-      type?: string;
-      subtype?: string;
-      structured_output?: TitleQueryResult | null;
-      result?: string;
-    };
+  const titlePromise = (async () => {
+    for await (const msg of query({
+      prompt,
+      options: sdkOptions,
+    })) {
+      const m = msg as {
+        type?: string;
+        subtype?: string;
+        structured_output?: TitleQueryResult | null;
+        result?: string;
+      };
 
-    if (m.type !== "result") continue;
+      if (m.type !== "result") continue;
 
-    if (m.subtype === "success") {
-      const structuredTitle = m.structured_output?.title?.trim();
-      if (structuredTitle) return structuredTitle;
+      if (m.subtype === "success") {
+        const structuredTitle = m.structured_output?.title?.trim();
+        if (structuredTitle) return structuredTitle;
 
-      const text = m.result?.trim();
-      if (text) {
-        try {
-          const parsed = JSON.parse(text) as TitleQueryResult;
-          const parsedTitle = parsed.title?.trim();
-          if (parsedTitle) return parsedTitle;
-        } catch {
-          return null;
+        const text = m.result?.trim();
+        if (text) {
+          try {
+            const parsed = JSON.parse(text) as TitleQueryResult;
+            const parsedTitle = parsed.title?.trim();
+            if (parsedTitle) return parsedTitle;
+          } catch {
+            return null;
+          }
         }
+        return null;
       }
-      return null;
+
+      if (m.subtype?.startsWith("error")) {
+        throw new Error(`Claude query failed: ${m.result || m.subtype}`);
+      }
     }
 
-    if (m.subtype?.startsWith("error")) {
-      throw new Error(`Claude query failed: ${m.result || m.subtype}`);
-    }
-  }
+    return null;
+  })();
 
-  return null;
+  const timeout = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error("Title generation timed out")), TITLE_TIMEOUT_MS);
+  });
+
+  return Promise.race([titlePromise, timeout]);
 }
 
 export class TitleGenerationQueue {
@@ -90,6 +102,7 @@ export class TitleGenerationQueue {
     const queued: QueuedTitleRequest = {
       ...request,
       canceled: false,
+      retries: 0,
     };
 
     this.cancel(request.jobId, request.followUpIndex);
@@ -138,7 +151,11 @@ export class TitleGenerationQueue {
         await next.onSuccess(title);
       }
     } catch (error) {
-      if (!next.canceled) {
+      if (!next.canceled && next.retries < TITLE_MAX_RETRIES) {
+        next.retries++;
+        console.warn(`[TitleGenerationQueue] Retry ${next.retries}/${TITLE_MAX_RETRIES} for job ${next.jobId}:`, error);
+        this.pending.unshift(next);
+      } else if (!next.canceled) {
         await next.onError?.(error);
       }
     } finally {
