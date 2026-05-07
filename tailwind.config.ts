@@ -1,10 +1,8 @@
-import type { Config } from 'tailwindcss';
-
 function cssVar(name: string) {
   return `rgb(var(--color-${name}) / <alpha-value>)`;
 }
 
-const config: Config = {
+const config = {
   darkMode: 'class',
   content: ['./index.html', './src/renderer/**/*.{html,tsx,ts}', '../../src/renderer/**/*.{html,tsx,ts}'],
   theme: {
@@ -103,6 +101,6 @@ const config: Config = {
     },
   },
   plugins: [],
-};
+} satisfies import('tailwindcss').Config;
 
-export default config;
+module.exports = config;

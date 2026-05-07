@@ -14,7 +14,12 @@ export function GitPanelCompose({ state, onClose }: GitPanelComposeProps) {
   const [scrollToFile, setScrollToFile] = useState<{ path: string; key: number } | null>(null);
 
   const handleFileClickScroll = useCallback(
-    (filePath: string) => {
+    (filePath: string | null) => {
+      if (!filePath) {
+        state.selectFile(null);
+        return;
+      }
+
       state.selectFile(filePath);
       scrollCounterRef.current += 1;
       setScrollToFile({ path: filePath, key: scrollCounterRef.current });

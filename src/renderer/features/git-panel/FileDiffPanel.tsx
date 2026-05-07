@@ -24,7 +24,7 @@ export function FileDiffPanel({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const isScrollingToRef = useRef(false);
-  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Callback ref for file sections
   const setSectionRef = useCallback((path: string, el: HTMLDivElement | null) => {
@@ -87,7 +87,9 @@ export function FileDiffPanel({
     el.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
     // Clear the guard after scroll animation completes
-    clearTimeout(scrollTimeoutRef.current);
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
+    }
     scrollTimeoutRef.current = setTimeout(() => {
       isScrollingToRef.current = false;
     }, 500);
@@ -95,7 +97,11 @@ export function FileDiffPanel({
 
   // Cleanup timeout on unmount
   useEffect(() => {
-    return () => clearTimeout(scrollTimeoutRef.current);
+    return () => {
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+    };
   }, []);
 
   // Empty state
