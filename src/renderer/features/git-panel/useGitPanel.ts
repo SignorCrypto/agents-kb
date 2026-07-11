@@ -103,7 +103,11 @@ export function useGitPanel(
 
   // Job attribution
   const projectBranchJobs = useMemo(
-    () => jobs.filter((j) => j.projectId === projectId && j.branch === branch),
+    () => jobs.filter((j) =>
+      j.projectId === projectId
+      && j.branch === branch
+      && (!j.useWorktree || j.workspaceState === 'applied')
+    ),
     [jobs, projectId, branch],
   );
 

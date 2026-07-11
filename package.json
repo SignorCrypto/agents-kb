@@ -6,6 +6,7 @@
   "scripts": {
     "start": "electron-vite dev",
     "demo": "DEMO_MODE=true electron-vite dev",
+    "test": "vitest run",
     "build": "electron-vite build",
     "postinstall": "electron-builder install-app-deps",
     "package": "pnpm build && electron-builder --dir",
@@ -27,10 +28,12 @@
     "postcss": "^8.5.14",
     "tailwindcss": "^4.2.4",
     "typescript": "^6.0.3",
-    "vite": "^7.3.3"
+    "vite": "^7.3.3",
+    "vitest": "^4.1.10"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.132",
+    "@anthropic-ai/claude-agent-sdk": "^0.3.201",
+    "@anthropic-ai/sdk": "0.110.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "electron-store": "^11.0.2",

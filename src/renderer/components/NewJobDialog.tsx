@@ -8,7 +8,6 @@ import { SegmentedPicker } from './SegmentedPicker';
 import { MentionTextarea } from './MentionInput';
 import { ImageAttachmentBar } from './ImageAttachmentBar';
 import { ProjectSelect } from './ProjectSelect';
-import { Input } from './Input';
 import { getEffortOptionsForThinking, getProjectColor, getThinkingModeOptionsForModel, normalizeEffortForThinking } from '../types/index';
 import type { ModelChoice, EffortLevel, ThinkingMode } from '../types/index';
 
@@ -25,14 +24,8 @@ export function NewJobDialog() {
   const [prompt, setPrompt] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [skipPlanning, setSkipPlanning] = useState(true);
+  const [useWorktree, setUseWorktree] = useState(false);
   const imageAttachment = useImageAttachment();
-  const [branches, setBranches] = useState<string[]>([]);
-  const [currentBranch, setCurrentBranch] = useState('');
-  const [selectedBranch, setSelectedBranch] = useState('');
-  const [loadingBranches, setLoadingBranches] = useState(false);
-  const [isCreatingBranch, setIsCreatingBranch] = useState(false);
-  const [newBranchName, setNewBranchName] = useState('');
-  const [branchError, setBranchError] = useState('');
   const [selectedModel, setSelectedModel] = useState<ModelChoice>(settings.defaultModel);
   const [selectedThinkingMode, setSelectedThinkingMode] = useState<ThinkingMode>(settings.defaultThinkingMode);
   const [selectedEffort, setSelectedEffort] = useState<EffortLevel | undefined>(settings.defaultEffort);
@@ -44,25 +37,10 @@ export function NewJobDialog() {
   const [error, setError] = useState('');
   const dialogRef = useRef<HTMLDivElement>(null);
   const projectSelectRef = useRef<HTMLSelectElement>(null);
-  const branchSelectRef = useRef<HTMLSelectElement>(null);
+  const selectedProject = projects.find((p) => p.id === selectedProjectId);
+  const worktreeAvailable = selectedProject?.isGitRepo !== false;
 
   const togglePlan = useCallback(() => setSkipPlanning((v) => !v), []);
-
-  const CREATE_BRANCH_VALUE = '__create_new__';
-
-  const newBranchInputRef = useRef<HTMLInputElement>(null);
-
-  const validateBranchName = (name: string): string | null => {
-    if (!name.trim()) return 'Branch name is required';
-    if (/\s/.test(name)) return 'Cannot contain spaces';
-    if (name.startsWith('-')) return 'Cannot start with a dash';
-    if (name.includes('..')) return 'Cannot contain ".."';
-    if (/[~^:\\]/.test(name)) return 'Contains invalid characters';
-    if (name.endsWith('.lock')) return 'Cannot end with ".lock"';
-    if (/[./]$/.test(name)) return 'Cannot end with "." or "/"';
-    if (branches.includes(name)) return 'Branch already exists';
-    return null;
-  };
 
   useEffect(() => {
     if (normalizedSelectedEffort !== selectedEffort) {
@@ -71,35 +49,10 @@ export function NewJobDialog() {
   }, [normalizedSelectedEffort, selectedEffort]);
 
   useEffect(() => {
-    if (!selectedProjectId) {
-      setBranches([]);
-      setCurrentBranch('');
-      setSelectedBranch('');
-      return;
+    if (!worktreeAvailable && useWorktree) {
+      setUseWorktree(false);
     }
-    let cancelled = false;
-    setLoadingBranches(true);
-    api.gitListBranches(selectedProjectId).then((result) => {
-      if (cancelled) return;
-      setLoadingBranches(false);
-      if (!result) {
-        setBranches([]);
-        setCurrentBranch('');
-        setSelectedBranch('');
-        return;
-      }
-      setBranches(result.branches);
-      setCurrentBranch(result.current);
-      const project = projects.find((p) => p.id === selectedProjectId);
-      const defaultBranch = project?.defaultBranch;
-      if (defaultBranch && result.branches.includes(defaultBranch)) {
-        setSelectedBranch(defaultBranch);
-      } else {
-        setSelectedBranch(result.current);
-      }
-    });
-    return () => { cancelled = true; };
-  }, [selectedProjectId, api, projects]);
+  }, [worktreeAvailable, useWorktree]);
 
   useShortcut('togglePlan', togglePlan, { ref: dialogRef });
 
@@ -107,26 +60,7 @@ export function NewJobDialog() {
     if (!selectedProjectId || !prompt.trim()) return;
     setSubmitting(true);
     setError('');
-    setBranchError('');
     try {
-      let branchToUse: string | undefined;
-      if (isCreatingBranch && newBranchName.trim()) {
-        const validationError = validateBranchName(newBranchName.trim());
-        if (validationError) {
-          setBranchError(validationError);
-          setSubmitting(false);
-          return;
-        }
-        const result = await api.gitCreateBranch(selectedProjectId, newBranchName.trim(), selectedBranch);
-        if (!result.success) {
-          setError(result.error || 'Failed to create branch');
-          setSubmitting(false);
-          return;
-        }
-        branchToUse = newBranchName.trim();
-      } else {
-        branchToUse = branches.length > 0 ? selectedBranch : undefined;
-      }
       const modelToUse = selectedModel !== settings.defaultModel ? selectedModel : undefined;
       const thinkingModeToUse = selectedThinkingMode !== settings.defaultThinkingMode ? selectedThinkingMode : undefined;
       const fallbackEffort = normalizeEffortForThinking(currentModelOption, selectedThinkingMode, settings.defaultEffort);
@@ -136,7 +70,7 @@ export function NewJobDialog() {
         prompt.trim(),
         skipPlanning || undefined,
         imageAttachment.toJobImages(),
-        branchToUse,
+        useWorktree || undefined,
         modelToUse,
         thinkingModeToUse,
         effortToUse,
@@ -161,11 +95,6 @@ export function NewJobDialog() {
     projectSelectRef.current?.focus();
     projectSelectRef.current?.showPicker?.();
   }, []), { ref: dialogRef, enabled: !filteredProjectId });
-
-  useShortcut('focusBranch', useCallback(() => {
-    branchSelectRef.current?.focus();
-    branchSelectRef.current?.showPicker?.();
-  }, []), { ref: dialogRef, enabled: branches.length > 0 });
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -206,109 +135,54 @@ export function NewJobDialog() {
           )}
         </div>
 
-        {/* Branch selector */}
-        {branches.length > 0 && (() => {
-          const selectedProject = projects.find((p) => p.id === selectedProjectId);
-          return (
-            <div className="mb-4">
-              <label className="flex items-center gap-1.5 text-xs font-medium text-content-secondary uppercase tracking-wider mb-1.5">
-                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="6" y1="3" x2="6" y2="13" />
-                  <circle cx="6" cy="3" r="2" />
-                  <circle cx="12" cy="5" r="2" />
-                  <path d="M12 7c0 3-2 4-6 6" />
-                </svg>
-                {isCreatingBranch ? 'New Branch' : 'Branch'}
-                <span className="ml-auto"><Kbd shortcutId="focusBranch" /></span>
-              </label>
-
-              {/* Main dropdown — includes real branches + "Create new branch…" action */}
-              <div className="relative">
-                <select
-                  ref={branchSelectRef}
-                  value={isCreatingBranch ? CREATE_BRANCH_VALUE : selectedBranch}
-                  onChange={(e) => {
-                    if (e.target.value === CREATE_BRANCH_VALUE) {
-                      setIsCreatingBranch(true);
-                      setBranchError('');
-                      setNewBranchName('');
-                      requestAnimationFrame(() => newBranchInputRef.current?.focus());
-                    } else {
-                      setIsCreatingBranch(false);
-                      setSelectedBranch(e.target.value);
-                      setNewBranchName('');
-                      setBranchError('');
-                    }
-                  }}
-                  disabled={loadingBranches}
-                  className="w-full appearance-none px-3 pr-10 py-2 text-sm rounded-lg border border-chrome bg-surface-elevated focus:outline-none focus:ring-2 focus:ring-focus-ring/40"
-                >
-                  {branches.map((b) => {
-                    const suffixes: string[] = [];
-                    if (b === currentBranch) suffixes.push('current');
-                    if (b === selectedProject?.defaultBranch) suffixes.push('default');
-                    const suffix = suffixes.length > 0 ? ` (${suffixes.join(', ')})` : '';
-                    return (
-                      <option key={b} value={b}>
-                        {b}{suffix}
-                      </option>
-                    );
-                  })}
-                  <option value={CREATE_BRANCH_VALUE}>+ Create new branch...</option>
-                </select>
-                <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-content-secondary" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M4 6l4 4 4-4" />
-                </svg>
-              </div>
-
-              {/* New branch fields — revealed when "Create new branch" is selected */}
-              {isCreatingBranch && (
-                <div className="mt-2 space-y-2">
-                  <Input
-                    ref={newBranchInputRef}
-                    type="text"
-                    value={newBranchName}
-                    onChange={(e) => {
-                      setNewBranchName(e.target.value);
-                      if (branchError) setBranchError('');
-                    }}
-                    placeholder="feature/my-branch"
-                    error={!!branchError}
-                  />
-                  {branchError && (
-                    <p className="text-[11px] text-semantic-error">{branchError}</p>
-                  )}
-                  <div>
-                    <span className="text-[11px] text-content-tertiary mb-1 block">Based on</span>
-                    <div className="relative">
-                      <select
-                        value={selectedBranch}
-                        onChange={(e) => setSelectedBranch(e.target.value)}
-                        disabled={loadingBranches}
-                        className="w-full appearance-none px-3 pr-10 py-1.5 text-xs rounded-lg border border-chrome bg-surface-elevated focus:outline-none focus:ring-2 focus:ring-focus-ring/40"
-                      >
-                        {branches.map((b) => {
-                          const suffixes: string[] = [];
-                          if (b === currentBranch) suffixes.push('current');
-                          if (b === selectedProject?.defaultBranch) suffixes.push('default');
-                          const suffix = suffixes.length > 0 ? ` (${suffixes.join(', ')})` : '';
-                          return (
-                            <option key={b} value={b}>
-                              {b}{suffix}
-                            </option>
-                          );
-                        })}
-                      </select>
-                      <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-content-secondary" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M4 6l4 4 4-4" />
-                      </svg>
-                    </div>
-                  </div>
-                </div>
+        {/* Workspace mode */}
+        <div className="mb-4">
+          <button
+            type="button"
+            onClick={() => worktreeAvailable && setUseWorktree((v) => !v)}
+            disabled={!worktreeAvailable}
+            className={`w-full flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors ${useWorktree
+              ? 'border-focus-ring/50 bg-focus-ring/10'
+              : 'border-chrome bg-surface-tertiary/35 hover:bg-surface-tertiary/55'
+              } ${!worktreeAvailable ? 'opacity-50 cursor-not-allowed' : ''}`}
+          >
+            <span className="flex min-w-0 items-center gap-2">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="text-content-secondary"
+              >
+                <line x1="5" y1="3" x2="5" y2="13" />
+                <circle cx="5" cy="3" r="2" />
+                <circle cx="11" cy="5" r="2" />
+                <path d="M11 7c0 3-2 4-6 6" />
+              </svg>
+              <span className="text-sm font-medium text-content-primary">Worktree</span>
+              {!worktreeAvailable && (
+                <span className="text-[11px] text-content-tertiary">Git unavailable</span>
               )}
-            </div>
-          );
-        })()}
+            </span>
+            <span
+              className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${useWorktree ? 'bg-btn-primary' : 'bg-chrome/50'}`}
+              aria-hidden="true"
+            >
+              <span
+                className={`absolute left-[2px] top-[2px] h-4 w-4 rounded-full bg-white shadow transition-transform ${useWorktree ? 'translate-x-4' : ''}`}
+              />
+            </span>
+          </button>
+          {worktreeAvailable && (
+            <p className="mt-1.5 px-1 text-[10px] leading-relaxed text-content-tertiary">
+              Isolates the job from the currently checked-out branch. The project must be clean; you can review and apply the result when the job is done.
+            </p>
+          )}
+        </div>
 
         {/* Prompt */}
         <div className="mb-4">

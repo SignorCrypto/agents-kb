@@ -1,7 +1,7 @@
-export type { KanbanColumn, JobStatus, Project, OutputEntry, RawMessage, PendingQuestion, SubQuestion, FollowUp, Job, JobImage, DraftImage, JobComposerDraft, PendingQuestionDraft, JobDetailDrafts, JobStepSnapshot, JobFileSnapshot, ShortcutBinding, AppSettings, ThemeMode, ModelChoice, EffortLevel, ThinkingMode, ModelOption, EffortOption, ThinkingModeOption, PromptConfig, PromptId, PreferredEditor, PermissionMode, PermissionModeOption, ProjectColorId, CliHealthStatus, PhaseTokenUsage, Skill, DynamicModelInfo, RewindFilesResult, AccountInfo, GitCommit, GitRef, GitLogResult, ChangedFile, TerminalTab, TerminalSplit } from '../../shared/types';
+export type { KanbanColumn, JobStatus, Project, OutputEntry, RawMessage, PendingQuestion, SubQuestion, FollowUp, Job, JobImage, DraftImage, JobComposerDraft, PendingQuestionDraft, JobDetailDrafts, JobStepSnapshot, JobFileSnapshot, ShortcutBinding, AppSettings, ThemeMode, ModelChoice, EffortLevel, ThinkingMode, ModelOption, EffortOption, ThinkingModeOption, PromptConfig, PromptId, PreferredEditor, PermissionMode, PermissionModeOption, ProjectColorId, CliHealthStatus, PhaseTokenUsage, Skill, DynamicModelInfo, RewindFilesResult, AccountInfo, GitCommit, GitRef, GitLogResult, ChangedFile, TerminalTab, TerminalSplit, WorkspacePublishStatus } from '../../shared/types';
 export { DEFAULT_SETTINGS, DEFAULT_SHORTCUTS, DEFAULT_COMMIT_PROMPT, DEFAULT_PROMPT_CONFIGS, PROMPT_IDS, EFFORT_LABELS, getEffortOptionsForModel, getEffortOptionsForThinking, getPreferredDefaultModel, getThinkingDisplay, getThinkingModeOptionsForModel, normalizeEffortForThinking, normalizeModelChoice, PROJECT_COLORS, getProjectColor, PERMISSION_MODE_CATALOG } from '../../shared/types';
 
-import type { Project, Job, JobImage, JobDetailDrafts, OutputEntry, RawMessage, PendingQuestion, AppSettings, ModelChoice, EffortLevel, ThinkingMode, CliHealthStatus, Skill, AccountInfo, RewindFilesResult, ModelOption, GitCommit, GitLogResult, ChangedFile } from '../../shared/types';
+import type { Project, Job, JobImage, JobDetailDrafts, OutputEntry, RawMessage, PendingQuestion, AppSettings, ModelChoice, EffortLevel, ThinkingMode, CliHealthStatus, Skill, AccountInfo, RewindFilesResult, ModelOption, GitCommit, GitLogResult, ChangedFile, WorkspacePublishStatus } from '../../shared/types';
 
 // IPC API exposed via preload
 export interface ElectronAPI {
@@ -51,9 +51,16 @@ export interface ElectronAPI {
 
   // Jobs
   jobsList: () => Promise<Job[]>;
-  jobsCreate: (projectId: string, prompt: string, skipPlanning?: boolean, images?: JobImage[], branch?: string, model?: ModelChoice, thinkingMode?: ThinkingMode, effort?: EffortLevel) => Promise<Job>;
+  jobsCreate: (projectId: string, prompt: string, skipPlanning?: boolean, images?: JobImage[], useWorktree?: boolean, model?: ModelChoice, thinkingMode?: ThinkingMode, effort?: EffortLevel) => Promise<Job>;
   jobsCancel: (jobId: string) => Promise<void>;
-  jobsDelete: (jobId: string, options?: { rollback?: boolean }) => Promise<void>;
+  jobsDelete: (jobId: string, options?: { rollback?: boolean; discardWorkspace?: boolean }) => Promise<void>;
+  jobsApplyWorkspace: (jobId: string) => Promise<Job>;
+  jobsOpenWorkspace: (jobId: string) => Promise<{ success: boolean; editor?: string; error?: string }>;
+  jobsWorkspaceStatus: (jobId: string) => Promise<WorkspacePublishStatus>;
+  jobsCommitWorkspace: (jobId: string, message: string) => Promise<Job>;
+  jobsPushWorkspace: (jobId: string) => Promise<Job>;
+  jobsGithubLogin: (jobId: string) => Promise<WorkspacePublishStatus>;
+  jobsOpenWorkspacePr: (jobId: string, title: string, body: string) => Promise<Job>;
   jobsRetry: (jobId: string, message?: string, images?: JobImage[]) => Promise<Job>;
   jobsRespond: (jobId: string, answers: Record<string, string>) => Promise<void>;
   jobsSteer: (jobId: string, message: string, images?: JobImage[]) => Promise<void>;

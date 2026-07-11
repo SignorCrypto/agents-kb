@@ -16,6 +16,7 @@ import { BrainIcon, BranchIcon, MessagesSquareIcon, StopIcon, TrashIcon, XIcon }
 import { CopyButton } from './CopyButton';
 import { PlanMarkdown } from './PlanMarkdown';
 import { StageIcon, getStageShortLabel } from './StageIcon';
+import { WorkspaceActions } from './WorkspaceActions';
 
 /* ─── Streaming isolation containers (Step 1) ─── */
 
@@ -512,7 +513,12 @@ export function JobDetailPanel() {
     if (!selectedJobIdRef.current) return;
     setDeleteLoading(true);
     try {
-      await api.jobsDelete(selectedJobIdRef.current);
+      await api.jobsDelete(selectedJobIdRef.current, {
+        discardWorkspace: job?.useWorktree
+          && !!job.workspacePath
+          && job.workspaceState !== 'applied'
+          && job.workspaceState !== 'discarded',
+      });
       removeJob(selectedJobIdRef.current);
       setConfirmDelete(false);
     } catch (err: unknown) {
@@ -521,7 +527,7 @@ export function JobDetailPanel() {
     } finally {
       setDeleteLoading(false);
     }
-  }, [api, removeJob]);
+  }, [api, job?.useWorktree, job?.workspacePath, job?.workspaceState, removeJob]);
 
   const handleRetry = useCallback(async (images?: JobImage[]) => {
     if (!selectedJobIdRef.current) return;
@@ -600,7 +606,7 @@ export function JobDetailPanel() {
             </button>
 
             {/* Roll Back */}
-            {canDelete && hasUncommittedChanges && (
+            {canDelete && hasUncommittedChanges && !job.workspacePrUrl && (
               <button
                 onClick={() => handleRejectJob(0)}
                 className="p-1.5 text-content-tertiary hover:text-semantic-warning transition-colors rounded"
@@ -631,7 +637,11 @@ export function JobDetailPanel() {
                     <div className="fixed inset-0 z-40" onClick={() => !deleteLoading && setConfirmDelete(false)} />
                     <div className="absolute right-0 top-full mt-1 z-50 bg-surface-elevated border border-chrome rounded-lg shadow-lg p-3 w-[200px]">
                       <p className="text-xs text-content-secondary mb-2">
-                        Delete this job permanently?
+                        {job.workspacePrUrl
+                          ? 'Delete this job and its local worktree? The remote branch and pull request will remain on GitHub.'
+                          : job.useWorktree && job.workspacePath && job.workspaceState !== 'applied' && job.workspaceState !== 'discarded'
+                            ? 'Discard the isolated worktree and delete this job? All unapplied changes will be permanently lost.'
+                          : 'Delete this job permanently?'}
                       </p>
                       <div className="flex gap-2">
                         <button
@@ -673,7 +683,7 @@ export function JobDetailPanel() {
             jobTitle={job.title}
             followUps={job.followUps}
             rewindPoints={job.status === 'completed' ? job.userMessageUuids : undefined}
-            onRollback={job.status === 'completed' ? handleRejectJob : undefined}
+            onRollback={job.status === 'completed' && !job.workspacePrUrl ? handleRejectJob : undefined}
             isActive={isActive}
           />
         </div>
@@ -793,6 +803,10 @@ export function JobDetailPanel() {
 
       {/* Context window fill — session-level stat above input */}
       <ContextUsageBar job={job} settings={settings} />
+
+      {job.useWorktree && (
+        <WorkspaceActions key={job.id} job={job} />
+      )}
 
       {/* Action area */}
       <ActionArea
@@ -1193,7 +1207,7 @@ const ActionArea = memo(function ActionArea({
       })()}
 
       {/* Completed — follow-up input */}
-      {job.status === 'completed' && (
+      {job.status === 'completed' && (!job.useWorktree || job.workspaceState === 'active') && (
         <div ref={followUpRef} className="space-y-2">
           <MentionTextarea
             value={followUpText}

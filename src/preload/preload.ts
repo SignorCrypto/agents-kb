@@ -32,9 +32,16 @@ const api: ElectronAPI = {
 
   // Jobs
   jobsList: () => ipcRenderer.invoke('jobs:list'),
-  jobsCreate: (projectId, prompt, skipPlanning, images, branch, model, thinkingMode, effort) => ipcRenderer.invoke('jobs:create', projectId, prompt, skipPlanning, images, branch, model, thinkingMode, effort),
+  jobsCreate: (projectId, prompt, skipPlanning, images, useWorktree, model, thinkingMode, effort) => ipcRenderer.invoke('jobs:create', projectId, prompt, skipPlanning, images, useWorktree, model, thinkingMode, effort),
   jobsCancel: (jobId) => ipcRenderer.invoke('jobs:cancel', jobId),
   jobsDelete: (jobId, options) => ipcRenderer.invoke('jobs:delete', jobId, options),
+  jobsApplyWorkspace: (jobId) => ipcRenderer.invoke('jobs:apply-workspace', jobId),
+  jobsOpenWorkspace: (jobId) => ipcRenderer.invoke('jobs:open-workspace', jobId),
+  jobsWorkspaceStatus: (jobId) => ipcRenderer.invoke('jobs:workspace-status', jobId),
+  jobsCommitWorkspace: (jobId, message) => ipcRenderer.invoke('jobs:commit-workspace', jobId, message),
+  jobsPushWorkspace: (jobId) => ipcRenderer.invoke('jobs:push-workspace', jobId),
+  jobsGithubLogin: (jobId) => ipcRenderer.invoke('jobs:github-login', jobId),
+  jobsOpenWorkspacePr: (jobId, title, body) => ipcRenderer.invoke('jobs:open-workspace-pr', jobId, title, body),
   jobsRetry: (jobId, message, images) => ipcRenderer.invoke('jobs:retry', jobId, message, images),
   jobsRespond: (jobId, response) => ipcRenderer.invoke('jobs:respond', jobId, response),
   jobsSteer: (jobId, message, images) => ipcRenderer.invoke('jobs:steer', jobId, message, images),

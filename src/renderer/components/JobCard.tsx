@@ -98,6 +98,19 @@ export const JobCard = memo(function JobCard({ job }: JobCardProps) {
                 <span className="truncate">{job.branch}</span>
               </span>
             )}
+            {job.useWorktree && (
+              <span
+                className={`rounded px-1 py-px text-[8px] font-bold uppercase tracking-wider ${job.workspaceState === 'applied' || job.workspacePrUrl
+                  ? 'bg-semantic-success-bg text-semantic-success'
+                  : job.workspaceState === 'missing'
+                    ? 'bg-semantic-error-bg text-semantic-error'
+                    : 'bg-focus-ring/10 text-content-secondary'
+                  }`}
+                title={job.workspacePrUrl ? 'Pull request open' : job.workspaceState === 'applied' ? 'Worktree applied' : job.workspaceState === 'missing' ? 'Worktree unavailable' : 'Isolated worktree'}
+              >
+                {job.workspacePrUrl ? 'PR' : job.workspaceState === 'applied' ? 'Applied' : 'WT'}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-1.5 ml-auto shrink-0 whitespace-nowrap">
             {/* {job.status === 'running' && (

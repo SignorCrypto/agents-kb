@@ -1,9 +1,10 @@
 /**
  * Wrapped re-export of the Claude Agent SDK query function.
  *
- * In packaged Electron apps the SDK resolves its cli.js from the asar archive,
- * but the executable lives in app.asar.unpacked. This wrapper transparently
- * injects `pathToClaudeCodeExecutable` so every call site is covered.
+ * In packaged Electron apps the SDK may resolve its bundled Claude executable
+ * from the asar archive, but executables must live in app.asar.unpacked. This
+ * wrapper transparently injects `pathToClaudeCodeExecutable` so every call site
+ * is covered.
  *
  * All main-process code must import `query` from this module (or "./sdk")
  * rather than directly from "@anthropic-ai/claude-agent-sdk".
@@ -14,11 +15,45 @@ import path from "path";
 import { app } from "electron";
 import { query as rawQuery } from "@anthropic-ai/claude-agent-sdk";
 
-let cachedPackagedCliPath: string | undefined;
+let cachedPackagedExecutablePath: string | null | undefined;
 
-function getPackagedCliPath(): string | undefined {
+function getPlatformBinarySpecifiers(): string[] {
+  const suffix = process.platform === "win32" ? "/claude.exe" : "/claude";
+  const arch = process.arch;
+
+  if (process.platform === "linux") {
+    return [
+      `@anthropic-ai/claude-agent-sdk-linux-${arch}-musl${suffix}`,
+      `@anthropic-ai/claude-agent-sdk-linux-${arch}${suffix}`,
+    ];
+  }
+
+  return [`@anthropic-ai/claude-agent-sdk-${process.platform}-${arch}${suffix}`];
+}
+
+function resolveUnpackedPath(specifier: string): string | undefined {
+  try {
+    const resolved = require.resolve(specifier);
+    const unpacked = resolved.replace("app.asar", "app.asar.unpacked");
+    if (fs.existsSync(unpacked)) return unpacked;
+    if (fs.existsSync(resolved)) return resolved;
+  } catch {
+    // Optional platform packages are only installed for the current target.
+  }
+  return undefined;
+}
+
+function getPackagedExecutablePath(): string | undefined {
   if (!app.isPackaged) return undefined;
-  if (cachedPackagedCliPath === undefined) {
+  if (cachedPackagedExecutablePath === undefined) {
+    for (const specifier of getPlatformBinarySpecifiers()) {
+      const binaryPath = resolveUnpackedPath(specifier);
+      if (binaryPath) {
+        cachedPackagedExecutablePath = binaryPath;
+        return binaryPath;
+      }
+    }
+
     const sdkEntryPath = require.resolve("@anthropic-ai/claude-agent-sdk");
     const sdkDir = path.dirname(sdkEntryPath);
     const unpackedSdkDir = sdkDir.replace("app.asar", "app.asar.unpacked");
@@ -26,25 +61,25 @@ function getPackagedCliPath(): string | undefined {
 
     if (!fs.existsSync(cliPath)) {
       throw new Error(
-        `[claude-sdk] Packaged Claude CLI not found at "${cliPath}". ` +
-          `Ensure electron-builder unpacks node_modules/@anthropic-ai/claude-agent-sdk/**.`,
+        `[claude-sdk] Packaged Claude executable not found. ` +
+          `Ensure electron-builder unpacks node_modules/@anthropic-ai/claude-agent-sdk*/**.`,
       );
     }
 
-    cachedPackagedCliPath = cliPath;
+    cachedPackagedExecutablePath = cliPath;
   }
-  return cachedPackagedCliPath;
+  return cachedPackagedExecutablePath ?? undefined;
 }
 
 type QueryArgs = Parameters<typeof rawQuery>[0];
 type QueryOptions = NonNullable<QueryArgs["options"]>;
 
 function withPackagedCliPath<T extends Record<string, unknown>>(options: T): T {
-  const cliPath = getPackagedCliPath();
-  if (!cliPath || options.pathToClaudeCodeExecutable) {
+  const executablePath = getPackagedExecutablePath();
+  if (!executablePath || options.pathToClaudeCodeExecutable) {
     return options;
   }
-  return { ...options, pathToClaudeCodeExecutable: cliPath };
+  return { ...options, pathToClaudeCodeExecutable: executablePath };
 }
 
 export function withProjectScopedClaudeCodeOptions<T extends Record<string, unknown>>(options: T): T {
@@ -75,7 +110,9 @@ export async function fetchSupportedModels(): Promise<
     supportsAdaptiveThinking?: boolean;
   }[]
 > {
-  const q = query({ prompt: "", options: { maxTurns: 0 } });
+  const env = { ...process.env };
+  delete env.CLAUDECODE;
+  const q = query({ prompt: "", options: { maxTurns: 0, env } });
   try {
     const initResult = await q.initializationResult();
     if (initResult?.models?.length) {

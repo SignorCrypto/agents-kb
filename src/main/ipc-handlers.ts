@@ -35,6 +35,8 @@ import { registerGitHistoryIpc } from './git-history/index';
 import { registerTerminalIpc, terminalManager as terminalManagerInstance } from './terminal/index';
 import { listProjectFiles } from './file-list';
 import { TitleGenerationQueue } from './title-generation';
+import { applyJobWorkspace, cleanupJobWorkspace, cleanupOrphanedJobWorktrees, prepareJobWorkspace, recoverJobWorkspaceMetadata, resolveJobWorkspacePath } from './job-workspaces';
+import { commitWorkspace, getWorkspacePublishStatus, loginGithub, openWorkspacePullRequest, pushWorkspace } from './job-workspace-publishing';
 import type { Job, JobImage, JobDetailDrafts, JobComposerDraft, PendingQuestionDraft, OutputEntry, RawMessage, PendingQuestion, AppSettings, Project, ModelChoice, EffortLevel, PromptConfig, PermissionMode, DynamicModelInfo, ModelOption, Skill, AccountInfo, ThinkingMode, FollowUp, JobStepSnapshot } from '../shared/types';
 import { DEFAULT_PROMPT_CONFIGS, normalizeEffortForThinking, normalizeModelChoice } from '../shared/types';
 import {
@@ -100,6 +102,35 @@ const activateApp = async (appName: string): Promise<void> => {
   await launchDetached('osascript', ['-e', `tell application "${appName}" to activate`]);
 };
 
+async function openPathInPreferredEditor(targetPath: string): Promise<{ success: boolean; editor?: string; error?: string }> {
+  const settings = getSettings();
+  const preferred = settings.preferredEditor ?? 'auto';
+  const { existsSync } = await import('fs');
+  const order = preferred === 'cursor'
+    ? [EDITORS[0]]
+    : preferred === 'vscode'
+      ? [EDITORS[1]]
+      : EDITORS;
+
+  for (const editor of order) {
+    if (await launchDetached(editor.cli, [targetPath])) {
+      await activateApp(editor.appName);
+      return { success: true, editor: editor.key };
+    }
+    if (process.platform === 'darwin' && existsSync(editor.appBin) && await launchDetached(editor.appBin, [targetPath])) {
+      await activateApp(editor.appName);
+      return { success: true, editor: editor.key };
+    }
+    if (process.platform === 'darwin' && await launchDetached('open', ['-a', editor.appName, targetPath])) {
+      await activateApp(editor.appName);
+      return { success: true, editor: editor.key };
+    }
+  }
+
+  const error = await shell.openPath(targetPath);
+  return error ? { success: false, error } : { success: true, editor: 'finder' };
+}
+
 type WindowGetter = () => BrowserWindow | null;
 
 const stepHistoryTracker = new JobStepHistoryTracker();
@@ -110,6 +141,7 @@ let cachedDynamicModels: DynamicModelInfo[] | null = null;
 
 // --- Account info from SDK ---
 let cachedAccountInfo: AccountInfo | null = null;
+let worktreesReconciled = false;
 
 /** Convert SDK ModelInfo[] to ModelOption[] for the renderer. */
 function buildModelCatalog(models: DynamicModelInfo[]): ModelOption[] {
@@ -377,11 +409,15 @@ async function markPlanReady(
 
 async function cleanupCompletedJobsForBranch(project: Project, branch: string): Promise<string[]> {
   const completedJobs = getJobs().filter(
-    (job) => job.projectId === project.id && job.branch === branch && (job.status === 'completed' || job.status === 'rejected'),
+    (job) => job.projectId === project.id
+      && job.branch === branch
+      && (job.status === 'completed' || job.status === 'rejected')
+      && (!job.useWorktree || job.workspaceState === 'applied' || job.workspaceState === 'discarded'),
   );
 
   for (const job of completedJobs) {
     stepHistoryTracker.discardStep(job.id);
+    await cleanupJobWorkspace(job, project);
     deleteJob(job.id);
   }
 
@@ -513,14 +549,7 @@ async function startClaudeSession(
 ) {
   const project = getProjects().find(p => p.id === job.projectId);
   if (!project) throw new Error('Project not found');
-
-  // Check out the target branch if specified (git repos only)
-  if (job.branch && projectIsGitRepo(project)) {
-    const branchInfo = await listBranches(project.path);
-    if (branchInfo && branchInfo.current !== job.branch) {
-      await checkoutBranch(project.path, job.branch);
-    }
-  }
+  const jobWorkspacePath = await resolveJobWorkspacePath(job, project);
 
   // For follow-ups, use the latest follow-up prompt (session is resumed so context is preserved)
   const latestFollowUp = job.followUps?.length ? job.followUps[job.followUps.length - 1].prompt : null;
@@ -552,7 +581,7 @@ async function startClaudeSession(
 
   const session = sessionManager.create({
     jobId: job.id,
-    projectPath: project.path,
+    projectPath: jobWorkspacePath,
     prompt,
     phase,
     sessionId,
@@ -596,7 +625,7 @@ async function startClaudeSession(
   // Capture file "before" state from canUseTool (pre-tool-call) — fires BEFORE
   // the SDK executes the tool, so the file hasn't been modified yet.
   session.on('pre-tool-call', (payload: { name: string; input: Record<string, unknown> }) => {
-    void stepHistoryTracker.recordToolCall(job.id, project.path, payload);
+    void stepHistoryTracker.recordToolCall(job.id, jobWorkspacePath, payload);
   });
 
   session.on('user-message-uuid', (uuid: string) => {
@@ -746,7 +775,7 @@ async function startClaudeSession(
       if (rollbackCtx) {
         pendingRollbacks.delete(job.id);
 
-        const valid = await validateRollbackTargets(project.path, rollbackCtx.targets);
+        const valid = await validateRollbackTargets(jobWorkspacePath, rollbackCtx.targets);
         if (!valid) {
           const updated = updateJob(job.id, {
             column: 'done',
@@ -804,13 +833,13 @@ async function startClaudeSession(
       // Normal dev completion
       // Extract edited files from output log before completion
       const outputLog = getOutputLog(job.id);
-      const editedFiles = extractEditedFilePaths(outputLog, project.path);
+      const editedFiles = extractEditedFilePaths(outputLog, jobWorkspacePath);
       const nextAppliedSeq = getNextProjectAppliedSeq(getJobs(), job.projectId);
-      const completedStep = await stepHistoryTracker.finalizeStep(job.id, project.path, nextAppliedSeq);
+      const completedStep = await stepHistoryTracker.finalizeStep(job.id, jobWorkspacePath, nextAppliedSeq);
       const nextStepSnapshots = completedStep
         ? [...(current.stepSnapshots || []), completedStep]
         : current.stepSnapshots;
-      const diffText = await buildStableJobDiff(project.path, current, nextStepSnapshots);
+      const diffText = await buildStableJobDiff(jobWorkspacePath, current, nextStepSnapshots);
 
       const updated = updateJob(job.id, {
         column: 'done',
@@ -1131,6 +1160,9 @@ function registerDemoHandlers(getWindow: WindowGetter): void {
     'git:list-changed-files', 'git:diff-file', 'git:discard-file', 'git:discard-all', 'git:unpushed-commits',
     'files:list',
     'jobs:create', 'jobs:cancel', 'jobs:delete', 'jobs:retry', 'jobs:respond', 'jobs:steer',
+    'jobs:apply-workspace', 'jobs:open-workspace',
+    'jobs:workspace-status', 'jobs:commit-workspace', 'jobs:push-workspace',
+    'jobs:github-login', 'jobs:open-workspace-pr',
     'jobs:accept-plan', 'jobs:edit-plan', 'jobs:follow-up', 'jobs:get-diff', 'jobs:reject-job',
     'jobs:rewind-preview', 'jobs:rewind-files', 'jobs:rewind-messages',
     'images:save',
@@ -1282,10 +1314,14 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     return renameProject(id, name);
   });
 
-  ipcMain.handle('projects:remove', (_event, id: string) => {
+  ipcMain.handle('projects:remove', async (_event, id: string) => {
+    const project = getProjects().find(p => p.id === id);
     const jobs = getJobs().filter(j => j.projectId === id);
     for (const job of jobs) {
       sessionManager.kill(job.id);
+      if (project) {
+        await cleanupJobWorkspace(job, project);
+      }
     }
     terminalManagerInstance.killByProject(id);
     removeProject(id);
@@ -1633,7 +1669,28 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
   });
 
   // === Jobs ===
-  ipcMain.handle('jobs:list', () => {
+  ipcMain.handle('jobs:list', async () => {
+    const jobs = getJobs();
+    if (!worktreesReconciled) {
+      worktreesReconciled = true;
+      await cleanupOrphanedJobWorktrees(jobs, getProjects()).catch((error) => {
+        console.error('[worktrees] Failed to reconcile orphaned worktrees:', error);
+      });
+    }
+    for (const job of jobs) {
+      if (!job.useWorktree || job.workspaceState === 'applied' || job.workspaceState === 'discarded') continue;
+      const project = getProjects().find((candidate) => candidate.id === job.projectId);
+      if (!project) continue;
+      try {
+        const recovered = await recoverJobWorkspaceMetadata(job, project);
+        updateJob(job.id, recovered);
+      } catch (error) {
+        updateJob(job.id, {
+          workspaceState: 'missing',
+          workspaceError: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
     return getJobs();
   });
 
@@ -1658,8 +1715,12 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     return updated;
   });
 
-  ipcMain.handle('jobs:create', async (_event, projectId: string, prompt: string, skipPlanning?: boolean, images?: JobImage[], branch?: string, model?: ModelChoice, thinkingMode?: ThinkingMode, effort?: EffortLevel) => {
+  ipcMain.handle('jobs:create', async (_event, projectId: string, prompt: string, skipPlanning?: boolean, images?: JobImage[], useWorktree?: boolean, model?: ModelChoice, thinkingMode?: ThinkingMode, effort?: EffortLevel) => {
     const now = new Date().toISOString();
+    const project = getProjects().find(p => p.id === projectId);
+    if (!project) throw new Error('Project not found');
+    const jobId = uuidv4();
+    const workspace = await prepareJobWorkspace(project, jobId, prompt, useWorktree);
 
     // Strip base64 data for persistence — keep only metadata
     const persistImages = images?.length
@@ -1667,7 +1728,7 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
       : undefined;
 
     const job: Job = {
-      id: uuidv4(),
+      id: jobId,
       projectId,
       prompt,
       column: skipPlanning ? 'development' : 'planning',
@@ -1677,11 +1738,17 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
         ? { developmentStartedAt: now, skipPlanning: true }
         : { planningStartedAt: now }),
       ...(persistImages ? { images: persistImages } : {}),
-      ...(branch ? { branch } : {}),
+      ...workspace,
       ...(model ? { model } : {}),
       ...(thinkingMode ? { thinkingMode } : {}),
       ...(effort ? { effort } : {}),
-      outputLog: [],
+      outputLog: workspace.workspacePath
+        ? [{
+          timestamp: now,
+          type: 'system',
+          content: `Worktree: ${workspace.workspacePath}`,
+        }]
+        : [],
       rawMessages: [],
     };
 
@@ -1697,10 +1764,7 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     saveJob(job);
 
     // Generate title (non-blocking)
-    const titleProject = getProjects().find(p => p.id === projectId);
-    if (titleProject) {
-      enqueueTitleGeneration(job.id, prompt, getWindow);
-    }
+    enqueueTitleGeneration(job.id, prompt, getWindow);
 
     await startClaudeSession(job, getWindow, batchedSender, skipPlanning ? 'dev' : 'plan');
 
@@ -1726,27 +1790,174 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     }
   });
 
-  ipcMain.handle('jobs:delete', async (_event, jobId: string, options?: { rollback?: boolean }) => {
+  ipcMain.handle('jobs:delete', async (_event, jobId: string, options?: { rollback?: boolean; discardWorkspace?: boolean }) => {
     sessionManager.kill(jobId);
     stepHistoryTracker.discardStep(jobId);
     titleGenerationQueue.cancel(jobId);
     pendingRollbacks.delete(jobId);
     const job = getJob(jobId);
+    const project = job ? getProjects().find(p => p.id === job.projectId) : undefined;
 
-    if (options?.rollback && job) {
+    const ownsWorkspace = job?.useWorktree
+      && !!job.workspacePath
+      && job.workspaceState !== 'applied'
+      && job.workspaceState !== 'discarded';
+    if (ownsWorkspace && !options?.discardWorkspace) {
+      throw new Error('This job still owns an isolated worktree. Confirm that its changes should be discarded before deleting it.');
+    }
+
+    if (options?.rollback && job && !job.useWorktree) {
       // Roll back changes using SDK rewind, with model-assisted fallback
-      const project = getProjects().find(p => p.id === job.projectId);
       if (!project) throw new Error('Project not found');
       const allJobs = getJobs();
       await rollbackJobToSnapshot(job, project, 0, allJobs);
     }
 
+    if (job && project) {
+      await cleanupJobWorkspace(job, project);
+    }
     deleteJob(jobId);
+  });
+
+  ipcMain.handle('jobs:open-workspace', async (_event, jobId: string) => {
+    const job = getJob(jobId);
+    if (!job) return { success: false, error: 'Job not found' };
+    const project = getProjects().find(p => p.id === job.projectId);
+    if (!project) return { success: false, error: 'Project not found' };
+    try {
+      const workspacePath = await resolveJobWorkspacePath(job, project);
+      return await openPathInPreferredEditor(workspacePath);
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle('jobs:apply-workspace', async (_event, jobId: string) => {
+    const job = getJob(jobId);
+    if (!job) throw new Error('Job not found');
+    if (!job.useWorktree || job.workspaceState !== 'active') {
+      throw new Error('This job does not have an active worktree to apply.');
+    }
+    if (job.workspacePrUrl) {
+      throw new Error('This worktree already has a pull request. Merge or close it instead of applying the same changes locally.');
+    }
+    const project = getProjects().find(p => p.id === job.projectId);
+    if (!project) throw new Error('Project not found');
+
+    const result = await applyJobWorkspace(job, project);
+    await cleanupJobWorkspace(job, project);
+    appendOutput(jobId, {
+      timestamp: new Date().toISOString(),
+      type: 'system',
+      content: result.changed
+        ? `Worktree changes applied to ${result.targetBranch}. The isolated workspace was cleaned up.`
+        : `Worktree contained no file changes. The isolated workspace was cleaned up.`,
+    });
+    const updated = updateJob(jobId, {
+      workspaceState: 'applied',
+      workspaceAppliedAt: new Date().toISOString(),
+      workspacePath: undefined,
+      workspaceBranch: undefined,
+      workspaceError: undefined,
+      branch: result.targetBranch,
+    });
+    if (!updated) throw new Error('Failed to persist the applied workspace state.');
+    sendToRenderer(getWindow, 'job:status-changed', updated);
+    return getJob(jobId) || updated;
+  });
+
+  ipcMain.handle('jobs:workspace-status', async (_event, jobId: string) => {
+    const job = getJob(jobId);
+    if (!job) throw new Error('Job not found');
+    const project = getProjects().find(p => p.id === job.projectId);
+    if (!project) throw new Error('Project not found');
+    const status = await getWorkspacePublishStatus(job, project);
+    if (status.pullRequestUrl && status.pullRequestUrl !== job.workspacePrUrl) {
+      const updated = updateJob(jobId, {
+        workspacePrUrl: status.pullRequestUrl,
+        workspacePrNumber: status.pullRequestNumber,
+      });
+      if (updated) sendToRenderer(getWindow, 'job:status-changed', updated);
+    }
+    return status;
+  });
+
+  ipcMain.handle('jobs:commit-workspace', async (_event, jobId: string, message: string) => {
+    const job = getJob(jobId);
+    if (!job) throw new Error('Job not found');
+    if (job.status !== 'completed' || job.workspaceState !== 'active') {
+      throw new Error('Only a completed active worktree can be committed.');
+    }
+    const project = getProjects().find(p => p.id === job.projectId);
+    if (!project) throw new Error('Project not found');
+    const sha = await commitWorkspace(job, project, message);
+    appendOutput(jobId, {
+      timestamp: new Date().toISOString(),
+      type: 'system',
+      content: `Worktree committed at ${sha.slice(0, 8)}.`,
+    });
+    const updated = updateJob(jobId, { workspaceCommitSha: sha });
+    if (!updated) throw new Error('Failed to persist the worktree commit.');
+    sendToRenderer(getWindow, 'job:status-changed', updated);
+    return getJob(jobId) || updated;
+  });
+
+  ipcMain.handle('jobs:push-workspace', async (_event, jobId: string) => {
+    const job = getJob(jobId);
+    if (!job) throw new Error('Job not found');
+    const project = getProjects().find(p => p.id === job.projectId);
+    if (!project) throw new Error('Project not found');
+    const result = await pushWorkspace(job, project);
+    const now = new Date().toISOString();
+    appendOutput(jobId, {
+      timestamp: now,
+      type: 'system',
+      content: `Worktree branch pushed to ${result.remoteName}/${job.workspaceBranch}.`,
+    });
+    const updated = updateJob(jobId, {
+      workspaceCommitSha: result.sha,
+      workspacePublishedAt: now,
+    });
+    if (!updated) throw new Error('Failed to persist the published worktree state.');
+    sendToRenderer(getWindow, 'job:status-changed', updated);
+    return getJob(jobId) || updated;
+  });
+
+  ipcMain.handle('jobs:github-login', async (_event, jobId: string) => {
+    const job = getJob(jobId);
+    if (!job) throw new Error('Job not found');
+    const project = getProjects().find(p => p.id === job.projectId);
+    if (!project) throw new Error('Project not found');
+    await loginGithub(job, project);
+    return getWorkspacePublishStatus(job, project);
+  });
+
+  ipcMain.handle('jobs:open-workspace-pr', async (_event, jobId: string, title: string, body: string) => {
+    const job = getJob(jobId);
+    if (!job) throw new Error('Job not found');
+    const project = getProjects().find(p => p.id === job.projectId);
+    if (!project) throw new Error('Project not found');
+    const result = await openWorkspacePullRequest(job, project, title, body);
+    appendOutput(jobId, {
+      timestamp: new Date().toISOString(),
+      type: 'system',
+      content: `Pull request opened: ${result.url}`,
+    });
+    const updated = updateJob(jobId, {
+      workspacePrUrl: result.url,
+      workspacePrNumber: result.number,
+    });
+    if (!updated) throw new Error('Failed to persist the pull request.');
+    sendToRenderer(getWindow, 'job:status-changed', updated);
+    return getJob(jobId) || updated;
   });
 
   ipcMain.handle('jobs:retry', async (_event, jobId: string, message?: string, images?: JobImage[]) => {
     const job = getJob(jobId);
     if (!job) throw new Error('Job not found');
+    if (job.useWorktree && job.workspaceState !== 'active') {
+      throw new Error(`This worktree was ${job.workspaceState || 'lost'} and cannot be retried. Create a new job instead.`);
+    }
 
     sessionManager.kill(jobId);
     stepHistoryTracker.discardStep(jobId);
@@ -1983,6 +2194,9 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     const job = getJob(jobId);
     if (!job) throw new Error('Job not found');
     if (job.status !== 'completed') throw new Error('Job is not completed');
+    if (job.useWorktree && job.workspaceState !== 'active') {
+      throw new Error('Applied worktree jobs are final. Create a new job for additional changes.');
+    }
 
     const now = new Date().toISOString();
     const followUps = [...(job.followUps || []), { prompt, timestamp: now }];
@@ -2251,6 +2465,27 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     if (!job) throw new Error('Job not found');
     if (job.status !== 'completed') throw new Error('Job is not completed');
 
+    const project = getProjects().find(p => p.id === job.projectId);
+    if (!project) throw new Error('Project not found');
+
+    if (job.useWorktree) {
+      if (job.workspacePrUrl) {
+        throw new Error('This job has an open pull request. Close the pull request before discarding its local worktree.');
+      }
+      await cleanupJobWorkspace(job, project);
+      const updated = updateJob(jobId, {
+        status: 'rejected',
+        rejectedAt: new Date().toISOString(),
+        workspaceState: 'discarded',
+        workspacePath: undefined,
+        workspaceBranch: undefined,
+      });
+      if (updated) {
+        sendToRenderer(getWindow, 'job:status-changed', updated);
+      }
+      return;
+    }
+
     const stepSnapshots = job.stepSnapshots || [];
 
     // Jobs without stored snapshots: just mark as rejected without rollback
@@ -2272,9 +2507,6 @@ export function registerIpcHandlers(getWindow: WindowGetter): void {
     if (targetIndex < 0 || targetIndex > maxRollbackIndex) {
       throw new Error('Invalid snapshot index');
     }
-
-    const project = getProjects().find(p => p.id === job.projectId);
-    if (!project) throw new Error('Project not found');
 
     const allJobs = getJobs();
 

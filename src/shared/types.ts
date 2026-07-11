@@ -271,7 +271,6 @@ export const DEFAULT_SHORTCUTS: ShortcutBinding[] = [
   { id: "submitForm", label: "Submit / Follow Up", keys: "mod+enter", enabled: true },
   { id: "openSettings", label: "Settings", keys: "mod+s", enabled: true },
   { id: "focusProject", label: "Focus Project (New Job & New Terminal)", keys: "mod+p", enabled: true },
-  { id: "focusBranch", label: "Focus Branch (New Job)", keys: "mod+b", enabled: true },
   { id: "togglePlan", label: "Toggle Plan (New Job)", keys: "shift+tab", enabled: true },
   { id: "toggleTerminal", label: "Toggle Terminal", keys: "mod+`", enabled: true },
   { id: "newTerminal", label: "New Terminal", keys: "mod+shift+`", enabled: true },
@@ -545,6 +544,18 @@ export interface Job {
   error?: string;
   erroredAt?: string;
   branch?: string;
+  useWorktree?: boolean;
+  workspacePath?: string;
+  workspaceBranch?: string;
+  workspaceBaseBranch?: string;
+  workspaceBaseSha?: string;
+  workspaceState?: "active" | "applied" | "discarded" | "missing";
+  workspaceError?: string;
+  workspaceAppliedAt?: string;
+  workspaceCommitSha?: string;
+  workspacePublishedAt?: string;
+  workspacePrUrl?: string;
+  workspacePrNumber?: number;
   images?: JobImage[];
   skipPlanning?: boolean;
   waitingStartedAt?: string;
@@ -566,6 +577,24 @@ export interface Job {
   effort?: EffortLevel;
   jobDetailDrafts?: JobDetailDrafts;
   jobDetailDraftVersion?: number;
+}
+
+export interface WorkspacePublishStatus {
+  dirty: boolean;
+  commitsAhead: number;
+  currentSha: string;
+  upstreamConfigured: boolean;
+  unpushedCommits: number;
+  remoteName?: string;
+  remoteUrl?: string;
+  remoteHost?: string;
+  provider: "github" | "other" | "none";
+  ghInstalled: boolean;
+  ghAuthenticated: boolean;
+  ghLogin?: string;
+  pullRequestUrl?: string;
+  pullRequestNumber?: number;
+  pullRequestState?: string;
 }
 
 /* --- Git Changed Files --- */

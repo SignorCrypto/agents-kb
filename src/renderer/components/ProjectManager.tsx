@@ -375,7 +375,9 @@ function ProjectDetailDialog({
             <div className="border-t border-chrome-subtle/70 px-4 py-2.5 mt-auto shrink-0">
               {confirmRemove ? (
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] text-semantic-error">Remove project?</span>
+                  <span className="max-w-[155px] text-[10px] leading-tight text-semantic-error">
+                    Remove project and local worktrees? Remote branches and PRs remain.
+                  </span>
                   <div className="flex items-center gap-1.5">
                     <button
                       onClick={() => { onRemove(); onClose(); }}
